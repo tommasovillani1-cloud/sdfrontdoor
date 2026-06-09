@@ -1,9 +1,11 @@
 command: ["sh", "-c", "npm run start"]
 
 env:
-  # Static, non-sensitive value — safe to hardcode per Databricks guidance.
-  - name: NODE_ENV
-    value: "production"
+  # NOTE: do NOT set NODE_ENV=production here. Databricks applies this env block
+  # during the build, and NODE_ENV=production makes `npm install` skip
+  # devDependencies (typescript, tailwind, etc.), which breaks `next build`
+  # (e.g. "Can't resolve '@/lib/db'"). Databricks sets NODE_ENV=production in the
+  # runtime environment by default, so the app still runs in production mode.
 
   # The 20 secrets below are injected from app resources configured in the
   # Databricks UI (scope e6-sdfrontdoor-dev). Each valueFrom references the
