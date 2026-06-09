@@ -1,0 +1,39 @@
+# dependencies
+/node_modules
+/.pnp
+.pnp.js
+
+# next.js
+/.next/
+/out/
+next-env.d.ts
+
+# production
+/build
+
+# misc
+.DS_Store
+*.pem
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# local env files (secrets, connection strings, tokens)
+.env
+.env*.local
+.env.local
+
+# Connection details dropped into the repo by hand
+PostgreSQL conn.txt
+
+# typescript
+*.tsbuildinfo
+
+# prisma
+/prisma/*.db
+
+# editor
+.vscode/
+.idea/

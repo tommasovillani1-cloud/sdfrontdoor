@@ -1,0 +1,245 @@
+// Element Six Service Desk Front Door — data model (PostgreSQL / Lakebase)
+// All operational data, including chat history, lives here. The chunked KB
+// text and embeddings live in a Databricks Delta table (kb_chunks), not here.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// --------------------------------------------------------------------------
+// Enums
+// --------------------------------------------------------------------------
+
+enum ConversationStatus {
+  active
+  resolved
+  escalated
+}
+
+enum MessageRole {
+  user
+  assistant
+  system
+}
+
+enum FeedbackRating {
+  up
+  down
+}
+
+enum KbDocumentStatus {
+  pending
+  processed
+  error
+}
+
+// --------------------------------------------------------------------------
+// Identity
+// --------------------------------------------------------------------------
+
+model User {
+  id          String    @id @default(cuid())
+  email       String    @unique // the forwarded identity
+  displayName String?   @map("display_name")
+  site        String? // from Graph country; "Unknown" when empty
+  entraOid    String?   @map("entra_oid") // optional; identity arrives via email
+  isAdmin     Boolean   @default(false) @map("is_admin")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  lastSeenAt  DateTime  @default(now()) @map("last_seen_at")
+
+  conversations Conversation[]
+  feedback      Feedback[]
+  auditLogs     AuditLog[]     @relation("ActorAuditLogs")
+
+  @@map("users")
+}
+
+// --------------------------------------------------------------------------
+// Conversations & messages
+// --------------------------------------------------------------------------
+
+model Conversation {
+  id          String             @id @default(cuid())
+  userId      String             @map("user_id")
+  title       String             @default("New conversation")
+  status      ConversationStatus @default(active)
+  categoryId  String?            @map("category_id")
+  startedAt   DateTime           @default(now()) @map("started_at") // reporting date
+  resolvedAt  DateTime?          @map("resolved_at")
+  escalatedAt DateTime?          @map("escalated_at")
+  deletedAt   DateTime?          @map("deleted_at") // soft delete before purge
+
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category    Category?     @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  messages    Message[]
+  escalations Escalation[]
+
+  @@index([userId, startedAt])
+  @@index([status])
+  @@index([startedAt])
+  @@index([deletedAt])
+  @@map("conversations")
+}
+
+model Message {
+  id             String      @id @default(cuid())
+  conversationId String      @map("conversation_id")
+  role           MessageRole
+  content        String      @db.Text
+  model          String? // model that produced an assistant message
+  tokensIn       Int?        @map("tokens_in")
+  tokensOut      Int?        @map("tokens_out")
+  createdAt      DateTime    @default(now()) @map("created_at")
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  feedback     Feedback[]
+
+  @@index([conversationId, createdAt])
+  @@map("messages")
+}
+
+// --------------------------------------------------------------------------
+// Categories (ITIL-aligned, editable by admins)
+// --------------------------------------------------------------------------
+
+model Category {
+  id          String  @id @default(cuid())
+  name        String  @unique
+  description String?
+  itilMapping String? @map("itil_mapping")
+  isActive    Boolean @default(true) @map("is_active")
+  sortOrder   Int     @default(0) @map("sort_order")
+
+  conversations Conversation[]
+
+  @@map("categories")
+}
+
+// --------------------------------------------------------------------------
+// Escalations (one row per handoff, for deflection measurement)
+// --------------------------------------------------------------------------
+
+model Escalation {
+  id             String   @id @default(cuid())
+  conversationId String   @map("conversation_id")
+  toEmail        String   @map("to_email")
+  subject        String
+  body           String   @db.Text
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId])
+  @@index([createdAt])
+  @@map("escalations")
+}
+
+// --------------------------------------------------------------------------
+// Feedback (thumbs up/down on assistant messages)
+// --------------------------------------------------------------------------
+
+model Feedback {
+  id        String         @id @default(cuid())
+  messageId String         @map("message_id")
+  userId    String         @map("user_id")
+  rating    FeedbackRating
+  createdAt DateTime       @default(now()) @map("created_at")
+
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, userId]) // one vote per user per message
+  @@map("feedback")
+}
+
+// --------------------------------------------------------------------------
+// App settings (system prompt, retention override, ServiceNow config, sync cadence)
+// Secrets within value JSON are encrypted with APP_ENCRYPTION_KEY at the app layer.
+// --------------------------------------------------------------------------
+
+model AppSetting {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
+
+  @@map("app_settings")
+}
+
+// System prompt change history (versioned, per open item decision).
+model SystemPromptVersion {
+  id        String   @id @default(cuid())
+  content   String   @db.Text
+  editedBy  String?  @map("edited_by") // actor email
+  note      String?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([createdAt])
+  @@map("system_prompt_versions")
+}
+
+// --------------------------------------------------------------------------
+// Audit log (all admin actions)
+// --------------------------------------------------------------------------
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  actorUserId String?  @map("actor_user_id")
+  action      String
+  target      String?
+  metadata    Json?
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  actor User? @relation("ActorAuditLogs", fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt])
+  @@index([actorUserId])
+  @@map("audit_log")
+}
+
+// --------------------------------------------------------------------------
+// Knowledge base registry (folder tree + document registry live in Postgres;
+// chunk text + embeddings live in Databricks kb_chunks Delta table).
+// --------------------------------------------------------------------------
+
+model KbFolder {
+  id        String   @id @default(cuid())
+  parentId  String?  @map("parent_id")
+  name      String
+  path      String   @unique // mirrors the Volume layout
+  createdAt DateTime @default(now()) @map("created_at")
+
+  parent    KbFolder?     @relation("FolderTree", fields: [parentId], references: [id], onDelete: Cascade)
+  children  KbFolder[]    @relation("FolderTree")
+  documents KbDocument[]
+
+  @@index([parentId])
+  @@map("kb_folders")
+}
+
+model KbDocument {
+  id               String           @id @default(cuid())
+  folderId         String           @map("folder_id")
+  originalFilename String           @map("original_filename") // stored verbatim
+  volumePath       String           @map("volume_path")
+  contentType      String?          @map("content_type")
+  version          Int              @default(1)
+  isActive         Boolean          @default(true) @map("is_active")
+  status           KbDocumentStatus @default(pending)
+  categoryId       String?          @map("category_id")
+  uploadedBy       String?          @map("uploaded_by")
+  uploadedAt       DateTime         @default(now()) @map("uploaded_at")
+  lastReviewed     DateTime?        @map("last_reviewed")
+  owner            String?
+  errorMessage     String?          @map("error_message")
+
+  folder KbFolder @relation(fields: [folderId], references: [id], onDelete: Cascade)
+
+  @@index([folderId])
+  @@index([status])
+  @@map("kb_documents")
+}
