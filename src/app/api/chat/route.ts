@@ -3,7 +3,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { requireUser } from "@/lib/identity";
 import { getAiAdapter } from "@/lib/ai";
-import type { ChatMessage } from "@/lib/ai/types";
+import type { ChatMessage, ContentPart } from "@/lib/ai/types";
 import { CHAT_TOOLS } from "@/lib/chat/tools";
 import { getSystemPrompt } from "@/lib/settings";
 import { redactSecrets } from "@/lib/chat/redact";
@@ -13,10 +13,20 @@ import { getRetriever, buildGroundingBlock } from "@/lib/kb/retrieval";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const BodySchema = z.object({
-  conversationId: z.string().optional(),
-  message: z.string().min(1).max(8000),
+const ImageSchema = z.object({
+  dataUrl: z.string().startsWith("data:image/"),
+  name: z.string().optional(),
 });
+
+const BodySchema = z
+  .object({
+    conversationId: z.string().nullish(),
+    message: z.string().max(8000).default(""),
+    images: z.array(ImageSchema).max(4).optional(),
+  })
+  .refine((d) => d.message.trim().length > 0 || (d.images?.length ?? 0) > 0, {
+    message: "Provide a message or at least one image.",
+  });
 
 /**
  * POST /api/chat
@@ -36,10 +46,11 @@ export async function POST(req: NextRequest) {
   if (!parsed.success) {
     return new Response("Bad request.", { status: 400 });
   }
-  const { conversationId, message } = parsed.data;
+  const { conversationId: conversationIdRaw, message, images } = parsed.data;
+  const conversationId = conversationIdRaw ?? undefined;
 
   // Light secret redaction before storage.
-  const { text: userText, redacted } = redactSecrets(message);
+  const { text: userText, redacted } = redactSecrets(message || (images?.length ? "[image attached]" : ""));
 
   // Resolve or create the conversation (must belong to the user).
   let convo = conversationId
@@ -99,12 +110,26 @@ export async function POST(req: NextRequest) {
     ? `${systemPrompt}\n\n---\n${grounding}`
     : systemPrompt;
 
+  // Build the current user turn — multipart if images are attached.
+  const userContent: ChatMessage["content"] = images?.length
+    ? [
+        { type: "text", text: userText } as ContentPart,
+        ...images.map(
+          (img) =>
+            ({ type: "image_url", image_url: { url: img.dataUrl } }) as ContentPart,
+        ),
+      ]
+    : userText;
+
   const messages: ChatMessage[] = [
     { role: "system", content: systemContent },
-    ...history.map((m) => ({
+    // History is text-only (images are not stored in the DB).
+    ...history.slice(0, -1).map((m) => ({
       role: m.role as ChatMessage["role"],
       content: m.content,
     })),
+    // Current turn (last in history) replaced with the possibly-multipart version.
+    { role: "user", content: userContent },
   ];
 
   const adapter = getAiAdapter();

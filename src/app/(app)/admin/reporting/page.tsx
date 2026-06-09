@@ -78,7 +78,7 @@ export default async function ReportingPage({
         />
         <MetricCard label="Total" value={summary.total} />
         <MetricCard label="Resolved" value={summary.resolved} accent="vibrant" />
-        <MetricCard label="Escalated" value={summary.escalated} accent="orange" />
+        <MetricCard label="Emailed Service Desk" value={summary.escalated} accent="orange" />
         <MetricCard
           label="Avg turns to resolve"
           value={summary.avgTurnsToResolution ?? "—"}

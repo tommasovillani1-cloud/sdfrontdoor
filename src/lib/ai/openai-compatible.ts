@@ -36,14 +36,14 @@ export class OpenAICompatibleAdapter implements AiAdapter {
       if (m.role === "tool") {
         return {
           role: "tool",
-          content: m.content,
+          content: typeof m.content === "string" ? m.content : "",
           tool_call_id: m.toolCallId ?? "",
         };
       }
       if (m.role === "assistant" && m.toolCalls?.length) {
         return {
           role: "assistant",
-          content: m.content || null,
+          content: (typeof m.content === "string" ? m.content : null) as string | null,
           tool_calls: m.toolCalls.map((t) => ({
             id: t.id,
             type: "function" as const,
@@ -51,7 +51,14 @@ export class OpenAICompatibleAdapter implements AiAdapter {
           })),
         };
       }
-      return { role: m.role, content: m.content } as
+      // User messages may be multipart (text + images).
+      if (m.role === "user" && Array.isArray(m.content)) {
+        return {
+          role: "user",
+          content: m.content as OpenAI.Chat.ChatCompletionContentPart[],
+        };
+      }
+      return { role: m.role, content: m.content as string } as
         | OpenAI.Chat.ChatCompletionSystemMessageParam
         | OpenAI.Chat.ChatCompletionUserMessageParam
         | OpenAI.Chat.ChatCompletionAssistantMessageParam;

@@ -218,7 +218,7 @@ function SidebarBody({
                     <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-vibrant" title="Resolved" />
                   )}
                   {item.status === "escalated" && (
-                    <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-orange" title="Escalated" />
+                    <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-orange" title="Emailed Service Desk" />
                   )}
                   <button
                     onClick={(e) => onDelete(item.id, e)}

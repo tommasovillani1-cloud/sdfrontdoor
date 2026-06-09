@@ -66,7 +66,7 @@ export function TrendChart({ data }: { data: TrendPoint[] }) {
           <Line
             type="monotone"
             dataKey="escalated"
-            name="Escalated"
+            name="Emailed Service Desk"
             stroke="rgb(var(--e6-orange))"
             strokeWidth={2}
             dot={false}

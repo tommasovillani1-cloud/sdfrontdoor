@@ -2,11 +2,17 @@
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { Send, ShieldAlert, Loader2, Sparkles } from "lucide-react";
+import { Send, ShieldAlert, Loader2, Sparkles, Paperclip, X } from "lucide-react";
 import { MessageBubble } from "./MessageBubble";
 import { ResolutionCheck } from "./ResolutionCheck";
 import { EscalationCard } from "./EscalationCard";
 import { ScopeNotice } from "./ScopeNotice";
+
+interface AttachedImage {
+  id: string;
+  dataUrl: string;
+  name: string;
+}
 
 export interface UiMessage {
   id: string;
@@ -54,17 +60,26 @@ export function ChatClient({
     toEmail: string;
   } | null>(null);
   const [redactionNotice, setRedactionNotice] = useState(false);
+  const [images, setImages] = useState<AttachedImage[]>([]);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const prevConvIdRef = useRef<string | null | undefined>(initialConversation?.id);
 
   // Keep state in sync when navigating between conversations.
+  // Only reset resolution/escalation when the conversation ID actually changes
+  // (not on router.refresh() which re-renders the same conversation).
   useEffect(() => {
+    const idChanged = initialConversation?.id !== prevConvIdRef.current;
+    prevConvIdRef.current = initialConversation?.id;
     setConversationId(initialConversation?.id ?? null);
     setStatus(initialConversation?.status ?? "active");
     setMessages(initialConversation?.messages ?? []);
-    setResolutionSummary(null);
-    setEscalation(null);
+    if (idChanged) {
+      setResolutionSummary(null);
+      setEscalation(null);
+    }
   }, [initialConversation]);
 
   const scrollToBottom = useCallback(() => {
@@ -78,6 +93,29 @@ export function ChatClient({
     scrollToBottom();
   }, [messages, resolutionSummary, escalation, scrollToBottom]);
 
+  const addImages = useCallback((files: FileList | File[]) => {
+    const allowed = Array.from(files).filter((f) => f.type.startsWith("image/")).slice(0, 4);
+    allowed.forEach((file) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const dataUrl = e.target?.result as string;
+        setImages((prev) => {
+          if (prev.length >= 4) return prev;
+          return [...prev, { id: `${Date.now()}-${Math.random()}`, dataUrl, name: file.name }];
+        });
+      };
+      reader.readAsDataURL(file);
+    });
+  }, []);
+
+  const onPaste = useCallback((e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const items = Array.from(e.clipboardData.items).filter((i) => i.type.startsWith("image/"));
+    if (!items.length) return;
+    e.preventDefault();
+    const files = items.map((i) => i.getAsFile()).filter(Boolean) as File[];
+    addImages(files);
+  }, [addImages]);
+
   const send = async () => {
     const text = input.trim();
     if (!text || sending) return;
@@ -86,6 +124,8 @@ export function ChatClient({
     setResolutionSummary(null);
     setEscalation(null);
     setInput("");
+    const pendingImages = images;
+    setImages([]);
 
     // Optimistic user message.
     const tempUserId = `tmp-u-${Date.now()}`;
@@ -100,7 +140,11 @@ export function ChatClient({
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ conversationId, message: text }),
+        body: JSON.stringify({
+          conversationId,
+          message: text,
+          images: pendingImages.map((img) => ({ dataUrl: img.dataUrl, name: img.name })),
+        }),
       });
 
       if (!res.ok || !res.body) {
@@ -319,30 +363,72 @@ export function ChatClient({
               it.
             </p>
           )}
+          {/* Image preview strip */}
+          {images.length > 0 && (
+            <div className="mb-2 flex flex-wrap gap-2">
+              {images.map((img) => (
+                <div key={img.id} className="relative">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={img.dataUrl}
+                    alt={img.name}
+                    className="h-16 w-16 rounded-lg border border-line object-cover"
+                  />
+                  <button
+                    onClick={() => setImages((prev) => prev.filter((i) => i.id !== img.id))}
+                    className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-eternal text-white shadow"
+                    aria-label="Remove image"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            multiple
+            className="hidden"
+            onChange={(e) => { if (e.target.files) { addImages(e.target.files); e.target.value = ""; } }}
+          />
+
           <div className="flex items-end gap-2 rounded-card border border-line bg-surface p-2 focus-within:border-brilliant focus-within:ring-2 focus-within:ring-brilliant/30">
             <textarea
               ref={textareaRef}
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={onKeyDown}
+              onPaste={onPaste}
               rows={1}
               placeholder="Describe your IT issue..."
               aria-label="Message"
               className="max-h-40 min-h-[2.5rem] flex-1 resize-none bg-transparent px-2 py-1.5 text-sm text-ink placeholder:text-ink-subtle focus:outline-none"
             />
             <div className="flex items-center gap-1">
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                disabled={sending || images.length >= 4}
+                className="btn-ghost h-9 w-9 !px-0 text-ink-muted"
+                title="Attach image"
+                aria-label="Attach image"
+              >
+                <Paperclip className="h-4 w-4" />
+              </button>
               {!escalation && conversationId && (
                 <button
                   onClick={startEscalation}
                   className="btn-ghost px-2.5 py-2 text-xs"
                   title="Hand off to the Service Desk"
                 >
-                  Escalate
+                  Email Service Desk
                 </button>
               )}
               <button
                 onClick={send}
-                disabled={!input.trim() || sending}
+                disabled={(!input.trim() && images.length === 0) || sending}
                 className="btn-primary h-9 w-9 !px-0"
                 aria-label="Send message"
               >

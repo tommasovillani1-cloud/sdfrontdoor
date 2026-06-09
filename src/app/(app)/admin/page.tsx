@@ -28,7 +28,7 @@ export default async function AdminOverview() {
             accent="vibrant"
           />
           <MetricCard label="Total interactions" value={summary.total} />
-          <MetricCard label="Escalations" value={summary.escalated} accent="orange" />
+          <MetricCard label="Emailed Service Desk" value={summary.escalated} accent="orange" />
           <MetricCard
             label="Feedback"
             value={`${feedback.up} / ${feedback.down}`}

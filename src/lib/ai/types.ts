@@ -3,9 +3,22 @@
 
 export type ChatRole = "system" | "user" | "assistant" | "tool";
 
+export interface TextPart {
+  type: "text";
+  text: string;
+}
+
+export interface ImagePart {
+  type: "image_url";
+  image_url: { url: string }; // data:image/...;base64,...
+}
+
+export type ContentPart = TextPart | ImagePart;
+
 export interface ChatMessage {
   role: ChatRole;
-  content: string;
+  /** Plain string for text-only messages; array for multipart (vision). */
+  content: string | ContentPart[];
   /** present on tool messages: the tool_call_id being answered */
   toolCallId?: string;
   /** present on assistant messages that requested tool calls */

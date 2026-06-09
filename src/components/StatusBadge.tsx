@@ -9,7 +9,7 @@ const STYLES: Record<string, string> = {
 const LABELS: Record<string, string> = {
   active: "Active",
   resolved: "Resolved",
-  escalated: "Escalated",
+  escalated: "Emailed Service Desk",
 };
 
 export function StatusBadge({ status }: { status: string }) {
