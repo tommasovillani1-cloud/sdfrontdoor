@@ -1,0 +1,50 @@
+command: ["sh", "-c", "npm run start"]
+
+env:
+  # Static, non-sensitive value — safe to hardcode per Databricks guidance.
+  - name: NODE_ENV
+    value: "production"
+
+  # The 20 secrets below are injected from app resources configured in the
+  # Databricks UI (scope e6-sdfrontdoor-dev). Each valueFrom references the
+  # resource *name*, which matches the secret key one-to-one.
+  - name: DATABASE_URL
+    valueFrom: DATABASE_URL
+  - name: AI_PROVIDER
+    valueFrom: AI_PROVIDER
+  - name: AI_BASE_URL
+    valueFrom: AI_BASE_URL
+  - name: AI_API_KEY
+    valueFrom: AI_API_KEY
+  - name: AI_MODEL
+    valueFrom: AI_MODEL
+  - name: SERVICE_DESK_EMAIL
+    valueFrom: SERVICE_DESK_EMAIL
+  - name: DEFAULT_ADMINS
+    valueFrom: DEFAULT_ADMINS
+  - name: APP_ENCRYPTION_KEY
+    valueFrom: APP_ENCRYPTION_KEY
+  - name: CRON_SECRET
+    valueFrom: CRON_SECRET
+  - name: DATABRICKS_HOST
+    valueFrom: DATABRICKS_HOST
+  - name: DATABRICKS_TOKEN
+    valueFrom: DATABRICKS_TOKEN
+  - name: KB_VOLUME_PATH
+    valueFrom: KB_VOLUME_PATH
+  - name: KB_DELTA_TABLE
+    valueFrom: KB_DELTA_TABLE
+  - name: KB_VECTOR_ENDPOINT
+    valueFrom: KB_VECTOR_ENDPOINT
+  - name: KB_VECTOR_INDEX
+    valueFrom: KB_VECTOR_INDEX
+  - name: KB_PROCESSING_JOB_ID
+    valueFrom: KB_PROCESSING_JOB_ID
+  - name: SERVICENOW_ENABLED
+    valueFrom: SERVICENOW_ENABLED
+  - name: GRAPH_CLIENT_ID
+    valueFrom: GRAPH_CLIENT_ID
+  - name: GRAPH_CLIENT_SECRET
+    valueFrom: GRAPH_CLIENT_SECRET
+  - name: GRAPH_TENANT_ID
+    valueFrom: GRAPH_TENANT_ID
