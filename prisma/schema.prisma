@@ -47,8 +47,9 @@ model User {
   email       String    @unique // the forwarded identity
   displayName String?   @map("display_name")
   site        String? // from Graph country; "Unknown" when empty
-  entraOid    String?   @map("entra_oid") // optional; identity arrives via email
-  isAdmin     Boolean   @default(false) @map("is_admin")
+  entraOid          String?   @map("entra_oid") // optional; identity arrives via email
+  preferredLanguage String?   @map("preferred_language") // BCP-47 tag from Graph (e.g. "fr-FR")
+  isAdmin           Boolean   @default(false) @map("is_admin")
   createdAt   DateTime  @default(now()) @map("created_at")
   lastSeenAt  DateTime  @default(now()) @map("last_seen_at")
 

@@ -11,6 +11,7 @@ import { env } from "./env";
 interface GraphProfile {
   displayName: string | null;
   country: string | null;
+  preferredLanguage: string | null;
 }
 
 let cachedToken: { value: string; expiresAt: number } | null = null;
@@ -67,7 +68,7 @@ export async function getGraphProfile(
   const token = await getAppToken();
   if (!token) return null;
 
-  const select = "displayName,country";
+  const select = "displayName,country,preferredLanguage";
   const headers = { Authorization: `Bearer ${token}` };
 
   try {
@@ -80,7 +81,11 @@ export async function getGraphProfile(
     );
     if (direct.ok) {
       const u = (await direct.json()) as GraphProfile;
-      return { displayName: u.displayName ?? null, country: u.country ?? null };
+      return {
+        displayName: u.displayName ?? null,
+        country: u.country ?? null,
+        preferredLanguage: u.preferredLanguage ?? null,
+      };
     }
 
     // Fallback: filter on mail.
@@ -97,6 +102,7 @@ export async function getGraphProfile(
         return {
           displayName: u.displayName ?? null,
           country: u.country ?? null,
+          preferredLanguage: u.preferredLanguage ?? null,
         };
       }
     }

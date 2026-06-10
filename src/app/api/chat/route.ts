@@ -13,6 +13,19 @@ import { getRetriever, buildGroundingBlock } from "@/lib/kb/retrieval";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+/**
+ * Returns a language instruction to append to the system prompt, or null if
+ * the user's language is English (or unknown). Accepts a BCP-47 tag such as
+ * "fr-FR", "de-DE", "pt-BR", or a plain ISO 639-1 code like "fr".
+ */
+function buildLanguageInstruction(preferredLanguage: string | null): string | null {
+  if (!preferredLanguage) return null;
+  const tag = preferredLanguage.trim().toLowerCase();
+  if (!tag || tag.startsWith("en")) return null;
+  // Pass the tag through to the model so it can identify the language precisely.
+  return `Language: The user's preferred language is "${preferredLanguage}". Respond in that language throughout the conversation. Do NOT switch to English unless the user writes to you in English.`;
+}
+
 const ImageSchema = z.object({
   dataUrl: z.string().startsWith("data:image/"),
   name: z.string().optional(),
@@ -106,9 +119,18 @@ export async function POST(req: NextRequest) {
   }
 
   const systemPrompt = await getSystemPrompt();
-  const systemContent = grounding
-    ? `${systemPrompt}\n\n---\n${grounding}`
+
+  // Append language instruction when the user's preferred language is known
+  // and is not already English. The escalation email is always sent in English
+  // (handled separately in the escalation route).
+  const languageInstruction = buildLanguageInstruction(user.preferredLanguage);
+  const basePrompt = languageInstruction
+    ? `${systemPrompt}\n\n${languageInstruction}`
     : systemPrompt;
+
+  const systemContent = grounding
+    ? `${basePrompt}\n\n---\n${grounding}`
+    : basePrompt;
 
   // Build the current user turn — multipart if images are attached.
   const userContent: ChatMessage["content"] = images?.length

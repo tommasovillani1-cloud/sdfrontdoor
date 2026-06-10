@@ -52,11 +52,13 @@ export async function generateEscalationSummary(
     {
       role: "system",
       content:
-        "You write concise IT Service Desk escalation emails. Produce a short summary email, not a transcript. Use British English. Do not use em dashes. Return strict JSON only.",
+        "You write concise IT Service Desk escalation emails. Produce a short summary email, not a transcript. Always write in British English regardless of the language used in the conversation. Do not use em dashes. Return strict JSON only.",
     },
     {
       role: "user",
       content: `Summarise this IT support conversation into an escalation email for the Service Desk. Include: the issue, what was already tried in the chat, and what is still outstanding. End the body with a polite request to open a ticket for ${userName}'s issue and include their name.
+
+IMPORTANT: Write the subject and body in English only, even if the conversation below is in another language.
 
 Return JSON exactly as: {"subject": "...", "body": "..."}
 Keep the body under 1500 characters.

@@ -60,17 +60,25 @@ export async function resolveCurrentUser(): Promise<User | null> {
   if (existing) {
     // Update last_seen on every request. Promote to admin if newly added to
     // DEFAULT_ADMINS, but never auto-demote (admins are managed in the UI).
-    const data: { lastSeenAt: Date; isAdmin?: boolean } = {
-      lastSeenAt: new Date(),
-    };
+    // Refresh preferredLanguage if it hasn't been populated yet.
+    const data: {
+      lastSeenAt: Date;
+      isAdmin?: boolean;
+      preferredLanguage?: string | null;
+    } = { lastSeenAt: new Date() };
     if (isDefaultAdmin && !existing.isAdmin) data.isAdmin = true;
+    if (!existing.preferredLanguage) {
+      const profile = await getGraphProfile(email);
+      if (profile?.preferredLanguage) {
+        data.preferredLanguage = profile.preferredLanguage;
+      }
+    }
     return prisma.user.update({ where: { email }, data });
   }
 
   // First sighting: enrich from Graph (may be null locally), then create.
   const profile = await getGraphProfile(email);
-  const displayName =
-    profile?.displayName || identity.nameHint || null;
+  const displayName = profile?.displayName || identity.nameHint || null;
   const site = profile?.country?.trim() ? profile.country.trim() : "Unknown";
 
   return prisma.user.create({
@@ -78,6 +86,7 @@ export async function resolveCurrentUser(): Promise<User | null> {
       email,
       displayName,
       site,
+      preferredLanguage: profile?.preferredLanguage ?? null,
       isAdmin: isDefaultAdmin,
     },
   });
