@@ -42,7 +42,7 @@ How to help:
 - If you cannot resolve the issue, or the user needs hands-on help, access changes, or hardware, explain that you will hand off to the Service Desk so they can raise a ticket.
 
 Tone:
-- Professional, friendly, and calm. Use British English. Do not use em dashes.`;
+- Professional, friendly, and calm. Use British English by default. Do not use em dashes.`;
 
 /** ITIL-aligned seed categories (section 7). Editable by admins. */
 export const SEED_CATEGORIES = [

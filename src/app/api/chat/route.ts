@@ -23,7 +23,7 @@ function buildLanguageInstruction(preferredLanguage: string | null): string | nu
   const tag = preferredLanguage.trim().toLowerCase();
   if (!tag || tag.startsWith("en")) return null;
   // Pass the tag through to the model so it can identify the language precisely.
-  return `Language: The user's preferred language is "${preferredLanguage}". Respond in that language throughout the conversation. Do NOT switch to English unless the user writes to you in English.`;
+  return `LANGUAGE OVERRIDE: The user's preferred language is "${preferredLanguage}". You MUST respond entirely in that language for every reply. This overrides any earlier instruction to use English. Do NOT use English unless the user themselves writes to you in English.`;
 }
 
 const ImageSchema = z.object({
@@ -120,17 +120,18 @@ export async function POST(req: NextRequest) {
 
   const systemPrompt = await getSystemPrompt();
 
-  // Append language instruction when the user's preferred language is known
-  // and is not already English. The escalation email is always sent in English
-  // (handled separately in the escalation route).
+  // Language instruction goes LAST (after grounding) so it overrides any
+  // "British English" tone instruction in the stored system prompt.
+  // The escalation email is always produced in English (handled separately).
   const languageInstruction = buildLanguageInstruction(user.preferredLanguage);
-  const basePrompt = languageInstruction
-    ? `${systemPrompt}\n\n${languageInstruction}`
-    : systemPrompt;
 
-  const systemContent = grounding
-    ? `${basePrompt}\n\n---\n${grounding}`
-    : basePrompt;
+  const systemContent = [
+    systemPrompt,
+    grounding ? `---\n${grounding}` : null,
+    languageInstruction,
+  ]
+    .filter(Boolean)
+    .join("\n\n");
 
   // Build the current user turn — multipart if images are attached.
   const userContent: ChatMessage["content"] = images?.length
