@@ -14,16 +14,13 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /**
- * Returns a language instruction to append to the system prompt, or null if
- * the user's language is English (or unknown). Accepts a BCP-47 tag such as
- * "fr-FR", "de-DE", "pt-BR", or a plain ISO 639-1 code like "fr".
+ * Always returns a language instruction telling the AI to mirror whatever
+ * language the user writes in. This is simpler and more robust than using
+ * the Entra preferredLanguage tag: it works for any language and correctly
+ * handles users who choose to write in a different language to their profile.
  */
-function buildLanguageInstruction(preferredLanguage: string | null): string | null {
-  if (!preferredLanguage) return null;
-  const tag = preferredLanguage.trim().toLowerCase();
-  if (!tag || tag.startsWith("en")) return null;
-  // Pass the tag through to the model so it can identify the language precisely.
-  return `LANGUAGE OVERRIDE: The user's preferred language is "${preferredLanguage}". You MUST respond entirely in that language for every reply. This overrides any earlier instruction to use English. Do NOT use English unless the user themselves writes to you in English.`;
+function buildLanguageInstruction(): string {
+  return "LANGUAGE OVERRIDE: Always reply in the same language the user writes in. If they write in German, reply in German. If they write in French, reply in French. This overrides any earlier instruction to use English. Only use English if the user writes to you in English.";
 }
 
 const ImageSchema = z.object({
@@ -123,7 +120,7 @@ export async function POST(req: NextRequest) {
   // Language instruction goes LAST (after grounding) so it overrides any
   // "British English" tone instruction in the stored system prompt.
   // The escalation email is always produced in English (handled separately).
-  const languageInstruction = buildLanguageInstruction(user.preferredLanguage);
+  const languageInstruction = buildLanguageInstruction();
 
   const systemContent = [
     systemPrompt,

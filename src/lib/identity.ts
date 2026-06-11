@@ -60,18 +60,18 @@ export async function resolveCurrentUser(): Promise<User | null> {
   if (existing) {
     // Update last_seen on every request. Promote to admin if newly added to
     // DEFAULT_ADMINS, but never auto-demote (admins are managed in the UI).
-    // Refresh preferredLanguage if it hasn't been populated yet.
+    // Refresh site/preferredLanguage from Graph if either is still unpopulated.
     const data: {
       lastSeenAt: Date;
       isAdmin?: boolean;
-      preferredLanguage?: string | null;
+      site?: string;
+      preferredLanguage?: string;
     } = { lastSeenAt: new Date() };
     if (isDefaultAdmin && !existing.isAdmin) data.isAdmin = true;
-    if (!existing.preferredLanguage) {
+    if (!existing.preferredLanguage || !existing.site || existing.site === "Unknown") {
       const profile = await getGraphProfile(email);
-      if (profile?.preferredLanguage) {
-        data.preferredLanguage = profile.preferredLanguage;
-      }
+      if (profile?.country?.trim()) data.site = profile.country.trim();
+      if (profile?.preferredLanguage) data.preferredLanguage = profile.preferredLanguage;
     }
     return prisma.user.update({ where: { email }, data });
   }
