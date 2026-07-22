@@ -1,18 +1,17 @@
 import { prisma } from "@/lib/db";
-import { getFolderTree } from "@/lib/kb/folders";
 import { getSetting } from "@/lib/settings";
 import { SETTINGS_KEYS, type SyncCadence } from "@/lib/constants";
-import { isIndexConfigured, isVolumeConfigured } from "@/lib/kb/databricks";
+import { isIndexConfigured } from "@/lib/kb/databricks";
+import { env } from "@/lib/env";
 import { KnowledgeBaseManager } from "@/components/admin/KnowledgeBaseManager";
 
 export const dynamic = "force-dynamic";
 
 export default async function KnowledgeBasePage() {
-  const [tree, cadence, lastSyncAt, categories] = await Promise.all([
-    getFolderTree(),
+  const [source, cadence, lastSyncAt] = await Promise.all([
+    prisma.kbSource.findFirst({ orderBy: { selectedAt: "desc" } }),
     getSetting<SyncCadence>(SETTINGS_KEYS.kbSyncCadence, "daily"),
     getSetting<string | null>(SETTINGS_KEYS.kbLastSyncAt, null),
-    prisma.category.findMany({ where: { isActive: true }, orderBy: { sortOrder: "asc" } }),
   ]);
 
   return (
@@ -20,20 +19,30 @@ export default async function KnowledgeBasePage() {
       <div className="mb-4">
         <h2 className="text-sm font-semibold text-ink">Knowledge base</h2>
         <p className="text-xs text-ink-muted">
-          Organise documents into folders that mirror the Unity Catalog Volume.
-          Uploaded files keep their original names. Documents are parsed and
-          indexed asynchronously, then synced to AI Search on your chosen
-          cadence.
+          Choose a SharePoint folder as the knowledge source. New and updated
+          files sync on your chosen cadence; removed files are dropped from the
+          index.
         </p>
       </div>
 
       <KnowledgeBaseManager
-        initialTree={tree}
+        initialSource={
+          source
+            ? {
+                siteName: source.siteName,
+                driveName: source.driveName,
+                folderPath: source.folderPath,
+                folderName: source.folderName,
+                includeSubfolders: source.includeSubfolders,
+                selectedBy: source.selectedBy,
+                selectedAt: source.selectedAt.toISOString(),
+              }
+            : null
+        }
         cadence={cadence}
         lastSyncAt={lastSyncAt}
         indexConfigured={isIndexConfigured()}
-        volumeConfigured={isVolumeConfigured()}
-        categories={categories.map((c) => ({ id: c.id, name: c.name }))}
+        browseConfigured={env.sharepointBrowse.configured}
       />
     </div>
   );

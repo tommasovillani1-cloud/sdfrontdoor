@@ -1,10 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { prisma } from "@/lib/db";
 import { requireAdmin } from "@/lib/identity";
 import { recordAudit } from "@/lib/audit";
 import { getSetting, setSetting } from "@/lib/settings";
 import { SETTINGS_KEYS, SYNC_CADENCES, type SyncCadence } from "@/lib/constants";
-import { triggerIndexSync, isIndexConfigured } from "@/lib/kb/databricks";
+import {
+  triggerSharePointSyncJob,
+  triggerIndexSync,
+  isIndexConfigured,
+} from "@/lib/kb/databricks";
 
 export const dynamic = "force-dynamic";
 
@@ -49,7 +54,11 @@ export async function PATCH(req: NextRequest) {
   return NextResponse.json({ ok: true, cadence: parsed.data.cadence });
 }
 
-/** POST — manual "Sync now". Triggers the index sync and records the time. */
+/**
+ * POST — manual "Sync now". Triggers the SharePoint sync Job for the selected
+ * folder (the Job does the incremental delta), then the index sync, and records
+ * the time. No-ops cleanly when no folder is selected or Databricks is absent.
+ */
 export async function POST(_req: NextRequest) {
   let actor;
   try {
@@ -57,22 +66,47 @@ export async function POST(_req: NextRequest) {
   } catch {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
-  const result = await triggerIndexSync();
+
+  const source = await prisma.kbSource.findFirst({
+    orderBy: { selectedAt: "desc" },
+  });
+  if (!source) {
+    return NextResponse.json({
+      ok: true,
+      jobTriggered: false,
+      indexTriggered: false,
+      note: "No SharePoint folder is selected yet, so there is nothing to sync.",
+    });
+  }
+
+  const job = await triggerSharePointSyncJob({
+    siteId: source.siteId,
+    driveId: source.driveId,
+    folderItemId: source.folderItemId,
+    folderPath: source.folderPath,
+    includeSubfolders: source.includeSubfolders,
+  });
+  const index = await triggerIndexSync();
+
   const now = new Date().toISOString();
-  if (result.triggered) {
+  if (job.triggered) {
     await setSetting(SETTINGS_KEYS.kbLastSyncAt, now);
   }
+
   await recordAudit({
     actorUserId: actor.id,
     action: "admin.kb.sync.manual",
-    metadata: { triggered: result.triggered },
+    target: source.folderPath,
+    metadata: { jobTriggered: job.triggered, indexTriggered: index.triggered },
   });
+
   return NextResponse.json({
     ok: true,
-    triggered: result.triggered,
-    lastSyncAt: result.triggered ? now : null,
-    note: result.triggered
+    jobTriggered: job.triggered,
+    indexTriggered: index.triggered,
+    lastSyncAt: job.triggered ? now : null,
+    note: job.triggered
       ? undefined
-      : "The AI Search index is not provisioned, so there was nothing to sync. Set KB_VECTOR_* to enable.",
+      : "Databricks is not fully configured, so the sync Job was not triggered. Set DATABRICKS_* and KB_PROCESSING_JOB_ID to enable.",
   });
 }

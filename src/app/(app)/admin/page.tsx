@@ -7,11 +7,11 @@ import { MetricCard } from "@/components/admin/MetricCard";
 export const dynamic = "force-dynamic";
 
 export default async function AdminOverview() {
-  const [summary, feedback, userCount, kbDocs] = await Promise.all([
+  const [summary, feedback, userCount, kbSource] = await Promise.all([
     getSummary({}),
     getFeedbackSummary(),
     prisma.user.count(),
-    prisma.kbDocument.count(),
+    prisma.kbSource.findFirst({ orderBy: { selectedAt: "desc" } }),
   ]);
 
   const deflectionPct = Math.round(summary.deflectionRate * 100);
@@ -43,7 +43,12 @@ export default async function AdminOverview() {
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <QuickLink href="/admin/users" icon={<Users className="h-5 w-5" />} label="Users" sub={`${userCount} known`} />
           <QuickLink href="/admin/reporting" icon={<BarChart3 className="h-5 w-5" />} label="Reporting" sub="Filters and trends" />
-          <QuickLink href="/admin/knowledge-base" icon={<BookOpen className="h-5 w-5" />} label="Knowledge base" sub={`${kbDocs} documents`} />
+          <QuickLink
+            href="/admin/knowledge-base"
+            icon={<BookOpen className="h-5 w-5" />}
+            label="Knowledge base"
+            sub={kbSource ? kbSource.folderName : "No folder selected"}
+          />
           <QuickLink href="/admin/servicenow" icon={<Plug className="h-5 w-5" />} label="ServiceNow" sub="Integration settings" />
         </div>
       </section>

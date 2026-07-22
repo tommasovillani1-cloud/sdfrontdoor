@@ -1,8 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
+import { prisma } from "@/lib/db";
 import { env } from "@/lib/env";
 import { getSetting, setSetting } from "@/lib/settings";
 import { SETTINGS_KEYS, SYNC_CADENCE_MS, type SyncCadence } from "@/lib/constants";
-import { triggerIndexSync, isIndexConfigured } from "@/lib/kb/databricks";
+import {
+  triggerSharePointSyncJob,
+  triggerIndexSync,
+  isProcessingJobConfigured,
+} from "@/lib/kb/databricks";
 
 export const dynamic = "force-dynamic";
 
@@ -31,10 +36,20 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
   }
 
-  if (!isIndexConfigured()) {
+  if (!isProcessingJobConfigured()) {
     return NextResponse.json({
       ok: true,
-      skipped: "index_not_configured",
+      skipped: "job_not_configured",
+    });
+  }
+
+  const source = await prisma.kbSource.findFirst({
+    orderBy: { selectedAt: "desc" },
+  });
+  if (!source) {
+    return NextResponse.json({
+      ok: true,
+      skipped: "no_source_selected",
     });
   }
 
@@ -58,17 +73,27 @@ export async function POST(req: NextRequest) {
     });
   }
 
-  const result = await triggerIndexSync();
+  // Trigger the SharePoint sync Job (it does the incremental delta), then the
+  // index sync.
+  const job = await triggerSharePointSyncJob({
+    siteId: source.siteId,
+    driveId: source.driveId,
+    folderItemId: source.folderItemId,
+    folderPath: source.folderPath,
+    includeSubfolders: source.includeSubfolders,
+  });
+  const index = await triggerIndexSync();
   const iso = new Date(now).toISOString();
-  if (result.triggered) {
+  if (job.triggered) {
     await setSetting(SETTINGS_KEYS.kbLastSyncAt, iso);
   }
 
   return NextResponse.json({
     ok: true,
     due: true,
-    triggered: result.triggered,
+    jobTriggered: job.triggered,
+    indexTriggered: index.triggered,
     cadence,
-    lastSyncAt: result.triggered ? iso : lastSyncAt,
+    lastSyncAt: job.triggered ? iso : lastSyncAt,
   });
 }

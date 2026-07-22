@@ -2,17 +2,13 @@
 
 import { useState, useEffect, useCallback } from "react";
 import {
-  FolderPlus,
   Folder,
   FolderOpen,
-  Upload,
   RefreshCw,
   Loader2,
-  FileText,
-  Trash2,
-  Power,
-  RotateCw,
   ChevronRight,
+  Check,
+  Link2,
 } from "lucide-react";
 import { cn, formatDateTime } from "@/lib/utils";
 import {
@@ -21,183 +17,58 @@ import {
   type SyncCadence,
 } from "@/lib/constants";
 
-interface FolderNode {
-  id: string;
-  parentId: string | null;
-  name: string;
-  path: string;
-  children: FolderNode[];
-  documentCount: number;
+interface SelectedSource {
+  siteName: string;
+  driveName: string;
+  folderPath: string;
+  folderName: string;
+  includeSubfolders: boolean;
+  selectedBy: string | null;
+  selectedAt: string;
 }
 
-interface KbDoc {
+interface SiteItem {
   id: string;
-  originalFilename: string;
-  volumePath: string;
-  version: number;
-  isActive: boolean;
-  status: string;
-  categoryId: string | null;
-  uploadedBy: string | null;
-  uploadedAt: string;
-  lastReviewed: string | null;
-  owner: string | null;
-  errorMessage: string | null;
+  name: string;
+  webUrl: string;
+}
+interface DriveItem {
+  id: string;
+  name: string;
+  webUrl: string;
+}
+interface FolderItem {
+  id: string;
+  name: string;
+  childCount: number;
+}
+
+/** A step in the folder drill-down: the folder we are inside (root when null). */
+interface Crumb {
+  itemId: string | null;
+  name: string;
 }
 
 export function KnowledgeBaseManager({
-  initialTree,
+  initialSource,
   cadence,
   lastSyncAt,
   indexConfigured,
-  volumeConfigured,
-  categories,
+  browseConfigured,
 }: {
-  initialTree: FolderNode[];
+  initialSource: SelectedSource | null;
   cadence: SyncCadence;
   lastSyncAt: string | null;
   indexConfigured: boolean;
-  volumeConfigured: boolean;
-  categories: { id: string; name: string }[];
+  browseConfigured: boolean;
 }) {
-  const [tree, setTree] = useState(initialTree);
-  const [selected, setSelected] = useState<FolderNode | null>(null);
-  const [docs, setDocs] = useState<KbDoc[]>([]);
-  const [loadingDocs, setLoadingDocs] = useState(false);
+  const [source, setSource] = useState<SelectedSource | null>(initialSource);
+  const [browsing, setBrowsing] = useState(initialSource === null);
+
   const [currentCadence, setCurrentCadence] = useState(cadence);
   const [lastSync, setLastSync] = useState(lastSyncAt);
   const [syncing, setSyncing] = useState(false);
-  const [uploading, setUploading] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
-
-  const refreshTree = useCallback(async () => {
-    const res = await fetch("/api/admin/kb/folders");
-    if (res.ok) {
-      const data = await res.json();
-      setTree(data.tree ?? []);
-    }
-  }, []);
-
-  const loadDocs = useCallback(async (folderId: string) => {
-    setLoadingDocs(true);
-    try {
-      const res = await fetch(`/api/admin/kb/documents?folderId=${folderId}`);
-      if (res.ok) {
-        const data = await res.json();
-        setDocs(data.documents ?? []);
-      }
-    } finally {
-      setLoadingDocs(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (selected) loadDocs(selected.id);
-    else setDocs([]);
-  }, [selected, loadDocs]);
-
-  const addFolder = async (parentId: string | null) => {
-    const name = prompt(
-      parentId ? "New subfolder name" : "New top-level folder name",
-    );
-    if (!name?.trim()) return;
-    const res = await fetch("/api/admin/kb/folders", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: name.trim(), parentId }),
-    });
-    if (res.ok) await refreshTree();
-  };
-
-  const renameFolder = async (folder: FolderNode) => {
-    const name = prompt("Rename folder", folder.name);
-    if (!name?.trim() || name === folder.name) return;
-    const res = await fetch("/api/admin/kb/folders", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: folder.id, name: name.trim() }),
-    });
-    if (res.ok) await refreshTree();
-  };
-
-  const deleteFolder = async (folder: FolderNode) => {
-    if (
-      !confirm(
-        `Delete folder "${folder.name}" and everything inside it? This cannot be undone.`,
-      )
-    )
-      return;
-    const res = await fetch(`/api/admin/kb/folders?id=${folder.id}`, {
-      method: "DELETE",
-    });
-    if (res.ok) {
-      if (selected?.id === folder.id) setSelected(null);
-      await refreshTree();
-    }
-  };
-
-  const onUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file || !selected) return;
-    setUploading(true);
-    setNotice(null);
-    try {
-      const form = new FormData();
-      form.set("folderId", selected.id);
-      form.set("file", file);
-      const res = await fetch("/api/admin/kb/documents", {
-        method: "POST",
-        body: form,
-      });
-      const data = await res.json();
-      if (res.ok) {
-        if (data.notes) setNotice(data.notes);
-        await loadDocs(selected.id);
-        await refreshTree();
-      } else {
-        setNotice(data.error ?? "Upload failed.");
-      }
-    } finally {
-      setUploading(false);
-      e.target.value = "";
-    }
-  };
-
-  const toggleDoc = async (doc: KbDoc) => {
-    const res = await fetch(`/api/admin/kb/documents/${doc.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ isActive: !doc.isActive }),
-    });
-    if (res.ok && selected) loadDocs(selected.id);
-  };
-
-  const setDocCategory = async (doc: KbDoc, categoryId: string) => {
-    const res = await fetch(`/api/admin/kb/documents/${doc.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ categoryId: categoryId || null }),
-    });
-    if (res.ok && selected) loadDocs(selected.id);
-  };
-
-  const reprocess = async (doc: KbDoc) => {
-    const res = await fetch(`/api/admin/kb/documents/${doc.id}`, {
-      method: "POST",
-    });
-    if (res.ok && selected) loadDocs(selected.id);
-  };
-
-  const deleteDoc = async (doc: KbDoc) => {
-    if (!confirm(`Delete "${doc.originalFilename}"?`)) return;
-    const res = await fetch(`/api/admin/kb/documents/${doc.id}`, {
-      method: "DELETE",
-    });
-    if (res.ok && selected) {
-      loadDocs(selected.id);
-      refreshTree();
-    }
-  };
 
   const changeCadence = async (c: SyncCadence) => {
     setCurrentCadence(c);
@@ -223,7 +94,7 @@ export function KnowledgeBaseManager({
 
   return (
     <div className="space-y-4">
-      {/* Sync controls */}
+      {/* Index sync controls (kept verbatim from the previous KB) */}
       <div className="card p-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -247,7 +118,11 @@ export function KnowledgeBaseManager({
                 </option>
               ))}
             </select>
-            <button onClick={syncNow} disabled={syncing} className="btn-secondary text-sm">
+            <button
+              onClick={syncNow}
+              disabled={syncing}
+              className="btn-secondary text-sm"
+            >
               {syncing ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
@@ -265,279 +140,466 @@ export function KnowledgeBaseManager({
         </div>
       )}
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-        {/* Folder tree */}
-        <div className="card p-3 lg:col-span-1">
-          <div className="mb-2 flex items-center justify-between">
-            <h3 className="text-sm font-medium text-ink">Folders</h3>
+      {/* Selected-source summary */}
+      {source && !browsing ? (
+        <div className="card p-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0">
+              <h3 className="text-sm font-medium text-ink">Knowledge source</h3>
+              <p className="mt-1 flex items-center gap-1.5 text-sm text-ink">
+                <FolderOpen className="h-4 w-4 shrink-0 text-orange" />
+                <span className="truncate font-medium">
+                  {source.folderName}
+                </span>
+              </p>
+              <p className="mt-0.5 truncate text-xs text-ink-subtle">
+                {source.siteName} / {source.driveName} / {source.folderPath}
+              </p>
+              <p className="mt-1 text-xs text-ink-muted">
+                {source.includeSubfolders
+                  ? "Including subfolders"
+                  : "This folder only"}
+                {source.selectedBy ? ` · set by ${source.selectedBy}` : ""}
+                {` · ${formatDateTime(source.selectedAt)}`}
+              </p>
+            </div>
             <button
-              onClick={() => addFolder(null)}
-              className="btn-ghost px-2 py-1 text-xs"
+              onClick={() => setBrowsing(true)}
+              className="btn-secondary text-sm"
             >
-              <FolderPlus className="h-3.5 w-3.5" />
-              New
+              Change folder
             </button>
           </div>
-          {tree.length === 0 ? (
-            <p className="px-2 py-6 text-center text-xs text-ink-subtle">
-              No folders yet. Create one to start.
-            </p>
-          ) : (
-            <ul className="space-y-0.5">
-              {tree.map((node) => (
-                <FolderTreeItem
-                  key={node.id}
-                  node={node}
-                  depth={0}
-                  selectedId={selected?.id ?? null}
-                  onSelect={setSelected}
-                  onAddChild={addFolder}
-                  onRename={renameFolder}
-                  onDelete={deleteFolder}
-                />
-              ))}
-            </ul>
-          )}
         </div>
-
-        {/* Documents */}
-        <div className="card p-4 lg:col-span-2">
-          {!selected ? (
-            <p className="py-12 text-center text-sm text-ink-subtle">
-              Select a folder to view and upload documents.
-            </p>
-          ) : (
-            <>
-              <div className="mb-3 flex items-center justify-between">
-                <div className="min-w-0">
-                  <h3 className="truncate text-sm font-medium text-ink">
-                    {selected.name}
-                  </h3>
-                  <p className="truncate text-xs text-ink-subtle">
-                    {selected.path}
-                  </p>
-                </div>
-                <label className="btn-primary cursor-pointer text-sm">
-                  {uploading ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Upload className="h-4 w-4" />
-                  )}
-                  Upload
-                  <input
-                    type="file"
-                    className="hidden"
-                    onChange={onUpload}
-                    disabled={uploading}
-                  />
-                </label>
-              </div>
-
-              {!volumeConfigured && (
-                <p className="mb-3 rounded-lg bg-surface-inset px-3 py-2 text-xs text-ink-muted">
-                  Databricks Volume is not configured. Uploads are recorded in
-                  the registry so you can see the flow, but files are not stored
-                  or processed until KB_* values are set.
-                </p>
-              )}
-
-              {loadingDocs ? (
-                <div className="flex justify-center py-8">
-                  <Loader2 className="h-5 w-5 animate-spin text-ink-subtle" />
-                </div>
-              ) : docs.length === 0 ? (
-                <p className="py-8 text-center text-sm text-ink-subtle">
-                  No documents in this folder yet.
-                </p>
-              ) : (
-                <ul className="divide-y divide-line">
-                  {docs.map((doc) => (
-                    <li key={doc.id} className="py-3">
-                      <div className="flex items-start gap-3">
-                        <FileText className="mt-0.5 h-4 w-4 shrink-0 text-ink-subtle" />
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-2">
-                            <span className="truncate text-sm font-medium text-ink">
-                              {doc.originalFilename}
-                            </span>
-                            {doc.version > 1 && (
-                              <span className="badge bg-surface-inset text-ink-subtle">
-                                v{doc.version}
-                              </span>
-                            )}
-                            <DocStatusBadge status={doc.status} />
-                            {!doc.isActive && (
-                              <span className="badge bg-surface-inset text-ink-muted">
-                                Inactive
-                              </span>
-                            )}
-                          </div>
-                          <p className="mt-0.5 text-xs text-ink-subtle">
-                            Uploaded {formatDateTime(doc.uploadedAt)}
-                            {doc.uploadedBy ? ` by ${doc.uploadedBy}` : ""}
-                            {doc.owner ? ` · owner ${doc.owner}` : ""}
-                          </p>
-                          {doc.errorMessage && (
-                            <p className="mt-1 text-xs text-orange">
-                              {doc.errorMessage}
-                            </p>
-                          )}
-                          <div className="mt-2 flex flex-wrap items-center gap-2">
-                            <select
-                              className="input w-auto py-1 text-xs"
-                              value={doc.categoryId ?? ""}
-                              onChange={(e) => setDocCategory(doc, e.target.value)}
-                            >
-                              <option value="">No category</option>
-                              {categories.map((c) => (
-                                <option key={c.id} value={c.id}>
-                                  {c.name}
-                                </option>
-                              ))}
-                            </select>
-                            <button
-                              onClick={() => toggleDoc(doc)}
-                              className="btn-ghost px-2 py-1 text-xs"
-                            >
-                              <Power className="h-3.5 w-3.5" />
-                              {doc.isActive ? "Deactivate" : "Activate"}
-                            </button>
-                            <button
-                              onClick={() => reprocess(doc)}
-                              className="btn-ghost px-2 py-1 text-xs"
-                            >
-                              <RotateCw className="h-3.5 w-3.5" />
-                              Reprocess
-                            </button>
-                            <button
-                              onClick={() => deleteDoc(doc)}
-                              className="btn-ghost px-2 py-1 text-xs text-orange hover:bg-orange/5"
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </>
-          )}
-        </div>
-      </div>
+      ) : (
+        <SharePointBrowser
+          browseConfigured={browseConfigured}
+          onCancel={source ? () => setBrowsing(false) : undefined}
+          initialIncludeSubfolders={source?.includeSubfolders ?? true}
+          onSelected={(s) => {
+            setSource(s);
+            setBrowsing(false);
+          }}
+        />
+      )}
     </div>
   );
 }
 
-function FolderTreeItem({
-  node,
-  depth,
-  selectedId,
-  onSelect,
-  onAddChild,
-  onRename,
-  onDelete,
+/**
+ * Three-step SharePoint folder picker (sites -> libraries -> folders) using the
+ * admin's own delegated identity. Any browse call returning needsAuth flips to a
+ * "Connect SharePoint" prompt. On "Use this folder" it PUTs the source.
+ */
+function SharePointBrowser({
+  browseConfigured,
+  onSelected,
+  onCancel,
+  initialIncludeSubfolders,
 }: {
-  node: FolderNode;
-  depth: number;
-  selectedId: string | null;
-  onSelect: (n: FolderNode) => void;
-  onAddChild: (parentId: string) => void;
-  onRename: (n: FolderNode) => void;
-  onDelete: (n: FolderNode) => void;
+  browseConfigured: boolean;
+  onSelected: (s: SelectedSource) => void;
+  onCancel?: () => void;
+  initialIncludeSubfolders: boolean;
 }) {
-  const [open, setOpen] = useState(true);
-  const isSelected = selectedId === node.id;
-  const hasChildren = node.children.length > 0;
+  const [needsAuth, setNeedsAuth] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Site step
+  const [siteQuery, setSiteQuery] = useState("");
+  const [sites, setSites] = useState<SiteItem[]>([]);
+  const [site, setSite] = useState<SiteItem | null>(null);
+
+  // Drive step
+  const [drives, setDrives] = useState<DriveItem[]>([]);
+  const [drive, setDrive] = useState<DriveItem | null>(null);
+
+  // Folder step
+  const [crumbs, setCrumbs] = useState<Crumb[]>([]);
+  const [folders, setFolders] = useState<FolderItem[]>([]);
+  const [includeSubfolders, setIncludeSubfolders] = useState(
+    initialIncludeSubfolders,
+  );
+
+  const handleResult = useCallback(
+    async (res: Response): Promise<Record<string, unknown> | null> => {
+      const data = await res.json().catch(() => ({}));
+      if (data?.needsAuth) {
+        setNeedsAuth(true);
+        return null;
+      }
+      setNeedsAuth(false);
+      return data;
+    },
+    [],
+  );
+
+  const loadSites = useCallback(
+    async (q: string) => {
+      setLoading(true);
+      setError(null);
+      try {
+        const res = await fetch(
+          `/api/admin/sharepoint/sites?q=${encodeURIComponent(q)}`,
+        );
+        const data = await handleResult(res);
+        if (data) setSites((data.items as SiteItem[]) ?? []);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [handleResult],
+  );
+
+  // Initial site load when the browser mounts and the app is configured.
+  useEffect(() => {
+    if (browseConfigured) loadSites("");
+  }, [browseConfigured, loadSites]);
+
+  const openSite = async (s: SiteItem) => {
+    setSite(s);
+    setDrive(null);
+    setDrives([]);
+    setFolders([]);
+    setCrumbs([]);
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(
+        `/api/admin/sharepoint/drives?siteId=${encodeURIComponent(s.id)}`,
+      );
+      const data = await handleResult(res);
+      if (data) setDrives((data.items as DriveItem[]) ?? []);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadFolders = useCallback(
+    async (driveId: string, itemId: string | null) => {
+      setLoading(true);
+      setError(null);
+      try {
+        const qs = itemId
+          ? `driveId=${encodeURIComponent(driveId)}&itemId=${encodeURIComponent(itemId)}`
+          : `driveId=${encodeURIComponent(driveId)}`;
+        const res = await fetch(`/api/admin/sharepoint/children?${qs}`);
+        const data = await handleResult(res);
+        if (data) setFolders((data.items as FolderItem[]) ?? []);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [handleResult],
+  );
+
+  const openDrive = async (d: DriveItem) => {
+    setDrive(d);
+    setCrumbs([{ itemId: null, name: d.name }]);
+    setFolders([]);
+    await loadFolders(d.id, null);
+  };
+
+  const drillInto = async (f: FolderItem) => {
+    if (!drive) return;
+    setCrumbs((c) => [...c, { itemId: f.id, name: f.name }]);
+    await loadFolders(drive.id, f.id);
+  };
+
+  const jumpToCrumb = async (index: number) => {
+    if (!drive) return;
+    const target = crumbs[index];
+    setCrumbs((c) => c.slice(0, index + 1));
+    await loadFolders(drive.id, target.itemId);
+  };
+
+  const currentCrumb = crumbs[crumbs.length - 1] ?? null;
+  const canUseFolder = Boolean(
+    site && drive && currentCrumb && currentCrumb.itemId,
+  );
+
+  const useThisFolder = async () => {
+    if (!site || !drive || !currentCrumb || !currentCrumb.itemId) return;
+    const folderPath = crumbs
+      .slice(1)
+      .map((c) => c.name)
+      .join("/");
+    setSaving(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/admin/kb/source", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          siteId: site.id,
+          siteName: site.name,
+          driveId: drive.id,
+          driveName: drive.name,
+          folderItemId: currentCrumb.itemId,
+          folderPath,
+          folderName: currentCrumb.name,
+          includeSubfolders,
+        }),
+      });
+      if (!res.ok) {
+        setError("Could not save the selected folder. Please try again.");
+        return;
+      }
+      const data = await res.json();
+      const s = data.source;
+      onSelected({
+        siteName: s.siteName,
+        driveName: s.driveName,
+        folderPath: s.folderPath,
+        folderName: s.folderName,
+        includeSubfolders: s.includeSubfolders,
+        selectedBy: s.selectedBy ?? null,
+        selectedAt: s.selectedAt,
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (!browseConfigured) {
+    return (
+      <div className="card p-4">
+        <h3 className="text-sm font-medium text-ink">Knowledge source</h3>
+        <p className="mt-1 text-xs text-ink-muted">
+          SharePoint browsing is not configured. Set SHAREPOINT_BROWSE_TENANT_ID,
+          SHAREPOINT_BROWSE_CLIENT_ID, and SHAREPOINT_BROWSE_CLIENT_SECRET to let
+          admins pick a folder.
+        </p>
+      </div>
+    );
+  }
+
+  if (needsAuth) {
+    return (
+      <div className="card p-4">
+        <h3 className="text-sm font-medium text-ink">Connect SharePoint</h3>
+        <p className="mt-1 text-xs text-ink-muted">
+          Sign in with your own account to browse the sites and folders you can
+          access. You will be returned here to pick a folder.
+        </p>
+        <a
+          href="/api/admin/sharepoint/auth/login"
+          className="btn-primary mt-3 inline-flex text-sm"
+        >
+          <Link2 className="h-4 w-4" />
+          Connect SharePoint
+        </a>
+      </div>
+    );
+  }
 
   return (
-    <li>
-      <div
-        className={cn(
-          "group flex items-center gap-1 rounded-lg px-2 py-1.5 text-sm",
-          isSelected ? "bg-orange/10 text-orange" : "text-ink hover:bg-surface-inset",
+    <div className="card p-4">
+      <div className="mb-3 flex items-center justify-between">
+        <h3 className="text-sm font-medium text-ink">
+          Choose a SharePoint folder
+        </h3>
+        {onCancel && (
+          <button onClick={onCancel} className="btn-ghost px-2 py-1 text-xs">
+            Cancel
+          </button>
         )}
-        style={{ paddingLeft: `${depth * 12 + 8}px` }}
-      >
-        <button
-          onClick={() => setOpen((o) => !o)}
-          className={cn("shrink-0", !hasChildren && "invisible")}
-          aria-label={open ? "Collapse" : "Expand"}
-        >
-          <ChevronRight
-            className={cn("h-3.5 w-3.5 transition-transform", open && "rotate-90")}
+      </div>
+
+      {error && (
+        <p className="mb-3 rounded-lg bg-orange/10 px-3 py-2 text-xs text-orange">
+          {error}
+        </p>
+      )}
+
+      {/* Step 1: site */}
+      <div className="mb-4">
+        <label className="mb-1 block text-xs font-medium text-ink-muted">
+          Site
+        </label>
+        <div className="flex gap-2">
+          <input
+            className="input text-sm"
+            placeholder="Search sites"
+            value={siteQuery}
+            onChange={(e) => setSiteQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") loadSites(siteQuery);
+            }}
           />
-        </button>
-        <button
-          onClick={() => onSelect(node)}
-          className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
-        >
-          {isSelected ? (
-            <FolderOpen className="h-4 w-4 shrink-0" />
-          ) : (
-            <Folder className="h-4 w-4 shrink-0" />
-          )}
-          <span className="truncate">{node.name}</span>
-          {node.documentCount > 0 && (
-            <span className="ml-1 text-xs text-ink-subtle">
-              {node.documentCount}
-            </span>
-          )}
-        </button>
-        <div className="hidden shrink-0 gap-0.5 group-hover:flex">
           <button
-            onClick={() => onAddChild(node.id)}
-            className="rounded p-0.5 text-ink-subtle hover:text-ink"
-            title="Add subfolder"
+            onClick={() => loadSites(siteQuery)}
+            className="btn-secondary text-sm"
           >
-            <FolderPlus className="h-3.5 w-3.5" />
-          </button>
-          <button
-            onClick={() => onRename(node)}
-            className="rounded p-0.5 text-ink-subtle hover:text-ink"
-            title="Rename"
-          >
-            <span className="text-xs">Aa</span>
-          </button>
-          <button
-            onClick={() => onDelete(node)}
-            className="rounded p-0.5 text-ink-subtle hover:text-orange"
-            title="Delete"
-          >
-            <Trash2 className="h-3.5 w-3.5" />
+            Search
           </button>
         </div>
+        {site ? (
+          <p className="mt-2 flex items-center gap-1.5 text-sm text-ink">
+            <Check className="h-4 w-4 text-orange" />
+            {site.name}
+            <button
+              onClick={() => {
+                setSite(null);
+                setDrive(null);
+                setDrives([]);
+                setFolders([]);
+                setCrumbs([]);
+              }}
+              className="ml-1 text-xs text-ink-subtle hover:text-ink"
+            >
+              change
+            </button>
+          </p>
+        ) : (
+          <ul className="mt-2 max-h-40 divide-y divide-line overflow-y-auto rounded-lg bg-surface-inset">
+            {sites.length === 0 && !loading ? (
+              <li className="px-3 py-3 text-xs text-ink-subtle">
+                No sites found.
+              </li>
+            ) : (
+              sites.map((s) => (
+                <li key={s.id}>
+                  <button
+                    onClick={() => openSite(s)}
+                    className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-ink hover:bg-orange/5"
+                  >
+                    <Folder className="h-4 w-4 shrink-0 text-ink-subtle" />
+                    <span className="truncate">{s.name}</span>
+                  </button>
+                </li>
+              ))
+            )}
+          </ul>
+        )}
       </div>
-      {open && hasChildren && (
-        <ul className="space-y-0.5">
-          {node.children.map((child) => (
-            <FolderTreeItem
-              key={child.id}
-              node={child}
-              depth={depth + 1}
-              selectedId={selectedId}
-              onSelect={onSelect}
-              onAddChild={onAddChild}
-              onRename={onRename}
-              onDelete={onDelete}
-            />
-          ))}
-        </ul>
-      )}
-    </li>
-  );
-}
 
-function DocStatusBadge({ status }: { status: string }) {
-  const map: Record<string, string> = {
-    pending: "bg-vivid/20 text-[rgb(150,115,0)]",
-    processed: "bg-success/15 text-[rgb(80,120,30)]",
-    error: "bg-orange/10 text-orange",
-  };
-  return (
-    <span className={cn("badge", map[status] ?? "bg-surface-inset text-ink-muted")}>
-      {status}
-    </span>
+      {/* Step 2: library (drive) */}
+      {site && (
+        <div className="mb-4">
+          <label className="mb-1 block text-xs font-medium text-ink-muted">
+            Document library
+          </label>
+          {drive ? (
+            <p className="flex items-center gap-1.5 text-sm text-ink">
+              <Check className="h-4 w-4 text-orange" />
+              {drive.name}
+              <button
+                onClick={() => {
+                  setDrive(null);
+                  setFolders([]);
+                  setCrumbs([]);
+                }}
+                className="ml-1 text-xs text-ink-subtle hover:text-ink"
+              >
+                change
+              </button>
+            </p>
+          ) : (
+            <ul className="max-h-40 divide-y divide-line overflow-y-auto rounded-lg bg-surface-inset">
+              {drives.length === 0 && !loading ? (
+                <li className="px-3 py-3 text-xs text-ink-subtle">
+                  No document libraries found.
+                </li>
+              ) : (
+                drives.map((d) => (
+                  <li key={d.id}>
+                    <button
+                      onClick={() => openDrive(d)}
+                      className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-ink hover:bg-orange/5"
+                    >
+                      <Folder className="h-4 w-4 shrink-0 text-ink-subtle" />
+                      <span className="truncate">{d.name}</span>
+                    </button>
+                  </li>
+                ))
+              )}
+            </ul>
+          )}
+        </div>
+      )}
+
+      {/* Step 3: folder drill-down */}
+      {site && drive && (
+        <div className="mb-4">
+          <label className="mb-1 block text-xs font-medium text-ink-muted">
+            Folder
+          </label>
+          <div className="mb-2 flex flex-wrap items-center gap-1 text-xs text-ink-muted">
+            {crumbs.map((c, i) => (
+              <span key={`${c.itemId ?? "root"}-${i}`} className="flex items-center gap-1">
+                {i > 0 && <ChevronRight className="h-3 w-3 text-ink-subtle" />}
+                <button
+                  onClick={() => jumpToCrumb(i)}
+                  className={cn(
+                    "rounded px-1 py-0.5 hover:bg-surface-inset",
+                    i === crumbs.length - 1 ? "font-medium text-ink" : "text-ink-muted",
+                  )}
+                >
+                  {c.name}
+                </button>
+              </span>
+            ))}
+          </div>
+          <ul className="max-h-52 divide-y divide-line overflow-y-auto rounded-lg bg-surface-inset">
+            {loading ? (
+              <li className="flex justify-center py-6">
+                <Loader2 className="h-4 w-4 animate-spin text-ink-subtle" />
+              </li>
+            ) : folders.length === 0 ? (
+              <li className="px-3 py-3 text-xs text-ink-subtle">
+                No subfolders here. You can select the current folder below.
+              </li>
+            ) : (
+              folders.map((f) => (
+                <li key={f.id}>
+                  <button
+                    onClick={() => drillInto(f)}
+                    className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-ink hover:bg-orange/5"
+                  >
+                    <Folder className="h-4 w-4 shrink-0 text-ink-subtle" />
+                    <span className="flex-1 truncate">{f.name}</span>
+                    <ChevronRight className="h-4 w-4 shrink-0 text-ink-subtle" />
+                  </button>
+                </li>
+              ))
+            )}
+          </ul>
+
+          <label className="mt-3 flex items-center gap-2 text-sm text-ink">
+            <input
+              type="checkbox"
+              checked={includeSubfolders}
+              onChange={(e) => setIncludeSubfolders(e.target.checked)}
+              className="h-4 w-4 rounded border-line text-orange focus:ring-orange"
+            />
+            Include subfolders
+          </label>
+
+          <div className="mt-3 flex items-center gap-2">
+            <button
+              onClick={useThisFolder}
+              disabled={!canUseFolder || saving}
+              className="btn-primary text-sm"
+            >
+              {saving ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Check className="h-4 w-4" />
+              )}
+              Use this folder
+            </button>
+            {!canUseFolder && (
+              <span className="text-xs text-ink-subtle">
+                Drill into a folder to select it (the library root cannot be the
+                source).
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }

@@ -1,10 +1,16 @@
 import { env } from "@/lib/env";
 
 /**
- * Thin Databricks REST client for KB operations: upload a file to a Unity
- * Catalog Volume, trigger the processing Job, and trigger the AI Search index
- * sync. Every method degrades cleanly when Databricks is not configured
- * (returns a no-op result) so the app runs with an empty/unprovisioned KB.
+ * Thin Databricks REST client for KB operations: trigger the SharePoint sync
+ * Job, and trigger the AI Search index sync. Every method degrades cleanly when
+ * Databricks is not configured (returns a no-op result) so the app runs with an
+ * empty/unprovisioned KB.
+ *
+ * The knowledge source is now a SharePoint folder. The daily sync Job (triggered
+ * here) authenticates as its own dedicated Entra app, enumerates the folder via
+ * Graph delta, and owns all incremental (new/updated/deleted) state and its
+ * delta cursor in Databricks. The app only passes the non-secret source
+ * descriptor; no client secret ever travels in job parameters.
  */
 
 function host(): string {
@@ -13,10 +19,6 @@ function host(): string {
 
 function authHeaders(): Record<string, string> {
   return { Authorization: `Bearer ${env.databricks.token}` };
-}
-
-export function isVolumeConfigured(): boolean {
-  return Boolean(env.databricks.host && env.databricks.token && env.kb.volumePath);
 }
 
 export function isProcessingJobConfigured(): boolean {
@@ -30,63 +32,18 @@ export function isIndexConfigured(): boolean {
 }
 
 /**
- * Upload bytes to a Volume path via the Files API (PUT /api/2.0/fs/files).
- * The volumePath must be the full target path including the preserved filename.
- * Returns { uploaded: false } cleanly when not configured.
+ * Trigger the SharePoint sync Job. The Job reads the selected folder, does the
+ * Graph delta enumeration (new/updated/deleted), writes chunks to kb_chunks, and
+ * persists its own delta cursor. Asynchronous: returns the run id. No-op when
+ * unconfigured. The sync Entra credentials live in the Job's Databricks secret
+ * scope, NOT in these parameters (job parameters persist in run history).
  */
-export async function uploadToVolume(
-  volumeFilePath: string,
-  bytes: Buffer,
-  overwrite = true,
-): Promise<{ uploaded: boolean; error?: string }> {
-  if (!isVolumeConfigured()) return { uploaded: false };
-
-  try {
-    const url = `${host()}/api/2.0/fs/files${encodeURI(volumeFilePath)}?overwrite=${overwrite}`;
-    const res = await fetch(url, {
-      method: "PUT",
-      headers: { ...authHeaders(), "Content-Type": "application/octet-stream" },
-      // Copy into a fresh ArrayBuffer-backed view for an unambiguous BodyInit.
-      body: new Blob([Uint8Array.from(bytes)]),
-    });
-    if (!res.ok) {
-      const text = await res.text().catch(() => "");
-      return { uploaded: false, error: `${res.status}: ${text.slice(0, 200)}` };
-    }
-    return { uploaded: true };
-  } catch (err) {
-    return { uploaded: false, error: (err as Error).message };
-  }
-}
-
-/** Create a Volume directory (mirrors a KB folder). No-op when unconfigured. */
-export async function createVolumeDirectory(
-  dirPath: string,
-): Promise<{ created: boolean; error?: string }> {
-  if (!isVolumeConfigured()) return { created: false };
-  try {
-    const url = `${host()}/api/2.0/fs/directories${encodeURI(dirPath)}`;
-    const res = await fetch(url, { method: "PUT", headers: authHeaders() });
-    if (!res.ok && res.status !== 409) {
-      const text = await res.text().catch(() => "");
-      return { created: false, error: `${res.status}: ${text.slice(0, 200)}` };
-    }
-    return { created: true };
-  } catch (err) {
-    return { created: false, error: (err as Error).message };
-  }
-}
-
-/**
- * Trigger the processing Job (parse/chunk/write to kb_chunks) for an uploaded
- * document. Asynchronous: returns the run id. No-op when unconfigured.
- */
-export async function triggerProcessingJob(params: {
-  documentId: string;
-  volumePath: string;
-  originalFilename: string;
+export async function triggerSharePointSyncJob(source: {
+  siteId: string;
+  driveId: string;
+  folderItemId: string;
   folderPath: string;
-  category?: string | null;
+  includeSubfolders: boolean;
 }): Promise<{ triggered: boolean; runId?: number; error?: string }> {
   if (!isProcessingJobConfigured()) return { triggered: false };
 
@@ -98,12 +55,14 @@ export async function triggerProcessingJob(params: {
       body: JSON.stringify({
         job_id: Number(env.kb.processingJobId),
         job_parameters: {
-          document_id: params.documentId,
-          volume_path: params.volumePath,
-          original_filename: params.originalFilename,
-          folder_path: params.folderPath,
-          category: params.category ?? "",
+          source_type: "sharepoint",
+          site_id: source.siteId,
+          drive_id: source.driveId,
+          folder_id: source.folderItemId,
+          folder_path: source.folderPath,
+          include_subfolders: String(source.includeSubfolders),
           delta_table: env.kb.deltaTable,
+          vector_index: env.kb.vectorIndex,
         },
       }),
     });

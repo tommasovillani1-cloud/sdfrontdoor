@@ -32,12 +32,6 @@ enum FeedbackRating {
   down
 }
 
-enum KbDocumentStatus {
-  pending
-  processed
-  error
-}
-
 // --------------------------------------------------------------------------
 // Identity
 // --------------------------------------------------------------------------
@@ -203,44 +197,44 @@ model AuditLog {
 }
 
 // --------------------------------------------------------------------------
-// Knowledge base registry (folder tree + document registry live in Postgres;
-// chunk text + embeddings live in Databricks kb_chunks Delta table).
+// Knowledge base source. The KB is backed by a single selected SharePoint
+// folder. This row records which folder is the source; the daily Databricks
+// job enumerates it (Graph delta), and the chunk text + embeddings live in the
+// Databricks kb_chunks Delta table. The job owns all incremental (new/updated/
+// deleted) state and its delta cursor in Databricks, not here.
 // --------------------------------------------------------------------------
 
-model KbFolder {
-  id        String   @id @default(cuid())
-  parentId  String?  @map("parent_id")
-  name      String
-  path      String   @unique // mirrors the Volume layout
-  createdAt DateTime @default(now()) @map("created_at")
+model KbSource {
+  id                String   @id @default(cuid())
+  siteId            String   @map("site_id")
+  siteName          String   @map("site_name")
+  driveId           String   @map("drive_id")
+  driveName         String   @map("drive_name")
+  folderItemId      String   @map("folder_item_id")
+  folderPath        String   @map("folder_path")
+  folderName        String   @map("folder_name")
+  includeSubfolders Boolean  @default(true) @map("include_subfolders")
+  selectedBy        String?  @map("selected_by") // actor email
+  selectedAt        DateTime @default(now()) @map("selected_at")
+  updatedAt         DateTime @default(now()) @updatedAt @map("updated_at")
 
-  parent    KbFolder?     @relation("FolderTree", fields: [parentId], references: [id], onDelete: Cascade)
-  children  KbFolder[]    @relation("FolderTree")
-  documents KbDocument[]
-
-  @@index([parentId])
-  @@map("kb_folders")
+  @@map("kb_source")
 }
 
-model KbDocument {
-  id               String           @id @default(cuid())
-  folderId         String           @map("folder_id")
-  originalFilename String           @map("original_filename") // stored verbatim
-  volumePath       String           @map("volume_path")
-  contentType      String?          @map("content_type")
-  version          Int              @default(1)
-  isActive         Boolean          @default(true) @map("is_active")
-  status           KbDocumentStatus @default(pending)
-  categoryId       String?          @map("category_id")
-  uploadedBy       String?          @map("uploaded_by")
-  uploadedAt       DateTime         @default(now()) @map("uploaded_at")
-  lastReviewed     DateTime?        @map("last_reviewed")
-  owner            String?
-  errorMessage     String?          @map("error_message")
+// --------------------------------------------------------------------------
+// Delegated SharePoint browse tokens (per admin). Populated by the interactive
+// OAuth auth-code flow so an admin can browse SharePoint as themselves. Access
+// and refresh tokens are encrypted at rest with APP_ENCRYPTION_KEY (crypto.ts).
+// Distinct from the app-only Graph/sync identities.
+// --------------------------------------------------------------------------
 
-  folder KbFolder @relation(fields: [folderId], references: [id], onDelete: Cascade)
+model SharePointBrowseToken {
+  userId       String   @id @map("user_id")
+  accessToken  String   @map("access_token") // encrypted
+  refreshToken String   @map("refresh_token") // encrypted
+  expiresAt    DateTime @map("expires_at")
+  scope        String?
+  updatedAt    DateTime @default(now()) @updatedAt @map("updated_at")
 
-  @@index([folderId])
-  @@index([status])
-  @@map("kb_documents")
+  @@map("sharepoint_browse_tokens")
 }

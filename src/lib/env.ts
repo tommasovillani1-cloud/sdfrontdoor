@@ -43,6 +43,38 @@ export const env = {
     },
   },
 
+  /**
+   * Dedicated Entra app for the admin's DELEGATED SharePoint browse (interactive
+   * auth-code flow). Distinct from the app-only GRAPH_* enrichment app: this one
+   * signs the admin in so they only see SharePoint they can access.
+   */
+  sharepointBrowse: {
+    tenantId: str("SHAREPOINT_BROWSE_TENANT_ID"),
+    clientId: str("SHAREPOINT_BROWSE_CLIENT_ID"),
+    clientSecret: str("SHAREPOINT_BROWSE_CLIENT_SECRET"),
+    get configured() {
+      return Boolean(this.tenantId && this.clientId && this.clientSecret);
+    },
+  },
+
+  /**
+   * Dedicated Entra app for the BACKEND SYNC (app-only client credentials). Used
+   * by the Databricks job to enumerate the selected SharePoint folder. Distinct
+   * from both GRAPH_* and the browse app. The sync itself runs in Databricks and
+   * reads these from its own secret scope; they are declared here for parity.
+   */
+  sharepointSync: {
+    tenantId: str("SHAREPOINT_SYNC_TENANT_ID"),
+    clientId: str("SHAREPOINT_SYNC_CLIENT_ID"),
+    clientSecret: str("SHAREPOINT_SYNC_CLIENT_SECRET"),
+    get configured() {
+      return Boolean(this.tenantId && this.clientId && this.clientSecret);
+    },
+  },
+
+  /** Base URL used to build the OAuth redirect URI; blank derives from headers. */
+  appBaseUrl: str("APP_BASE_URL"),
+
   ai: {
     provider: str("AI_PROVIDER", "databricks") as
       | "databricks"
