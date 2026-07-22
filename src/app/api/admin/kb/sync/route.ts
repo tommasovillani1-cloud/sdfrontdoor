@@ -55,9 +55,10 @@ export async function PATCH(req: NextRequest) {
 }
 
 /**
- * POST — manual "Sync now". Triggers the SharePoint sync Job for the selected
- * folder (the Job does the incremental delta), then the index sync, and records
- * the time. No-ops cleanly when no folder is selected or Databricks is absent.
+ * POST — manual "Sync now". Triggers one SharePoint sync Job run per selected
+ * folder (each Job run does its own incremental delta), then a single index
+ * sync, and records the time. No-ops cleanly when no folders are selected or
+ * Databricks is absent.
  */
 export async function POST(_req: NextRequest) {
   let actor;
@@ -67,46 +68,58 @@ export async function POST(_req: NextRequest) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const source = await prisma.kbSource.findFirst({
+  const sources = await prisma.kbSource.findMany({
     orderBy: { selectedAt: "desc" },
   });
-  if (!source) {
+  if (sources.length === 0) {
     return NextResponse.json({
       ok: true,
-      jobTriggered: false,
+      jobsTriggered: 0,
       indexTriggered: false,
-      note: "No SharePoint folder is selected yet, so there is nothing to sync.",
+      note: "No SharePoint folders are selected yet, so there is nothing to sync.",
     });
   }
 
-  const job = await triggerSharePointSyncJob({
-    siteId: source.siteId,
-    driveId: source.driveId,
-    folderItemId: source.folderItemId,
-    folderPath: source.folderPath,
-    includeSubfolders: source.includeSubfolders,
-  });
-  const index = await triggerIndexSync();
+  const jobs = await Promise.all(
+    sources.map((source) =>
+      triggerSharePointSyncJob({
+        siteId: source.siteId,
+        driveId: source.driveId,
+        folderItemId: source.folderItemId,
+        folderPath: source.folderPath,
+        includeSubfolders: source.includeSubfolders,
+      }),
+    ),
+  );
+  const jobsTriggered = jobs.filter((j) => j.triggered).length;
+
+  // Only sync the index once, after the per-folder jobs have been kicked off.
+  const index = jobsTriggered > 0 ? await triggerIndexSync() : { triggered: false };
 
   const now = new Date().toISOString();
-  if (job.triggered) {
+  if (jobsTriggered > 0) {
     await setSetting(SETTINGS_KEYS.kbLastSyncAt, now);
   }
 
   await recordAudit({
     actorUserId: actor.id,
     action: "admin.kb.sync.manual",
-    target: source.folderPath,
-    metadata: { jobTriggered: job.triggered, indexTriggered: index.triggered },
+    target: `${sources.length} folder(s)`,
+    metadata: {
+      jobsTriggered,
+      sourceCount: sources.length,
+      indexTriggered: index.triggered,
+    },
   });
 
   return NextResponse.json({
     ok: true,
-    jobTriggered: job.triggered,
+    jobsTriggered,
     indexTriggered: index.triggered,
-    lastSyncAt: job.triggered ? now : null,
-    note: job.triggered
-      ? undefined
-      : "Databricks is not fully configured, so the sync Job was not triggered. Set DATABRICKS_* and KB_PROCESSING_JOB_ID to enable.",
+    lastSyncAt: jobsTriggered > 0 ? now : null,
+    note:
+      jobsTriggered > 0
+        ? undefined
+        : "Databricks is not fully configured, so the sync Job was not triggered. Set DATABRICKS_* and KB_PROCESSING_JOB_ID to enable.",
   });
 }

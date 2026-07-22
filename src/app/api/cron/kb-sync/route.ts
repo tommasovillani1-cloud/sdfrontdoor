@@ -43,10 +43,10 @@ export async function POST(req: NextRequest) {
     });
   }
 
-  const source = await prisma.kbSource.findFirst({
+  const sources = await prisma.kbSource.findMany({
     orderBy: { selectedAt: "desc" },
   });
-  if (!source) {
+  if (sources.length === 0) {
     return NextResponse.json({
       ok: true,
       skipped: "no_source_selected",
@@ -73,27 +73,33 @@ export async function POST(req: NextRequest) {
     });
   }
 
-  // Trigger the SharePoint sync Job (it does the incremental delta), then the
-  // index sync.
-  const job = await triggerSharePointSyncJob({
-    siteId: source.siteId,
-    driveId: source.driveId,
-    folderItemId: source.folderItemId,
-    folderPath: source.folderPath,
-    includeSubfolders: source.includeSubfolders,
-  });
-  const index = await triggerIndexSync();
+  // Trigger one SharePoint sync Job run per folder (each does its own
+  // incremental delta), then a single index sync.
+  const jobs = await Promise.all(
+    sources.map((source) =>
+      triggerSharePointSyncJob({
+        siteId: source.siteId,
+        driveId: source.driveId,
+        folderItemId: source.folderItemId,
+        folderPath: source.folderPath,
+        includeSubfolders: source.includeSubfolders,
+      }),
+    ),
+  );
+  const jobsTriggered = jobs.filter((j) => j.triggered).length;
+  const index = jobsTriggered > 0 ? await triggerIndexSync() : { triggered: false };
   const iso = new Date(now).toISOString();
-  if (job.triggered) {
+  if (jobsTriggered > 0) {
     await setSetting(SETTINGS_KEYS.kbLastSyncAt, iso);
   }
 
   return NextResponse.json({
     ok: true,
     due: true,
-    jobTriggered: job.triggered,
+    jobsTriggered,
+    sourceCount: sources.length,
     indexTriggered: index.triggered,
     cadence,
-    lastSyncAt: job.triggered ? iso : lastSyncAt,
+    lastSyncAt: jobsTriggered > 0 ? iso : lastSyncAt,
   });
 }

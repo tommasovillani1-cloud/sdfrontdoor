@@ -8,6 +8,8 @@ import {
   Loader2,
   ChevronRight,
   Check,
+  Plus,
+  Trash2,
 } from "lucide-react";
 import { cn, formatDateTime } from "@/lib/utils";
 import {
@@ -17,8 +19,12 @@ import {
 } from "@/lib/constants";
 
 interface SelectedSource {
+  id: string;
+  siteId: string;
   siteName: string;
+  driveId: string;
   driveName: string;
+  folderItemId: string;
   folderPath: string;
   folderName: string;
   includeSubfolders: boolean;
@@ -49,20 +55,22 @@ interface Crumb {
 }
 
 export function KnowledgeBaseManager({
-  initialSource,
+  initialSources,
   cadence,
   lastSyncAt,
   indexConfigured,
   browseConfigured,
 }: {
-  initialSource: SelectedSource | null;
+  initialSources: SelectedSource[];
   cadence: SyncCadence;
   lastSyncAt: string | null;
   indexConfigured: boolean;
   browseConfigured: boolean;
 }) {
-  const [source, setSource] = useState<SelectedSource | null>(initialSource);
-  const [browsing, setBrowsing] = useState(initialSource === null);
+  const [sources, setSources] = useState<SelectedSource[]>(initialSources);
+  // Show the picker inline when there are no sources yet, or when the admin
+  // explicitly clicks "Add folder".
+  const [adding, setAdding] = useState(initialSources.length === 0);
 
   const [currentCadence, setCurrentCadence] = useState(cadence);
   const [lastSync, setLastSync] = useState(lastSyncAt);
@@ -91,9 +99,24 @@ export function KnowledgeBaseManager({
     }
   };
 
+  const addSource = (s: SelectedSource) => {
+    setSources((prev) =>
+      prev.some((p) => p.id === s.id) ? prev : [s, ...prev],
+    );
+    setAdding(false);
+  };
+
+  const updateSource = (s: SelectedSource) => {
+    setSources((prev) => prev.map((p) => (p.id === s.id ? s : p)));
+  };
+
+  const removeSource = (id: string) => {
+    setSources((prev) => prev.filter((p) => p.id !== id));
+  };
+
   return (
     <div className="space-y-4">
-      {/* Index sync controls (kept verbatim from the previous KB) */}
+      {/* Index sync controls */}
       <div className="card p-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -139,66 +162,160 @@ export function KnowledgeBaseManager({
         </div>
       )}
 
-      {/* Selected-source summary */}
-      {source && !browsing ? (
-        <div className="card p-4">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div className="min-w-0">
-              <h3 className="text-sm font-medium text-ink">Knowledge source</h3>
-              <p className="mt-1 flex items-center gap-1.5 text-sm text-ink">
-                <FolderOpen className="h-4 w-4 shrink-0 text-orange" />
-                <span className="truncate font-medium">
-                  {source.folderName}
-                </span>
-              </p>
-              <p className="mt-0.5 truncate text-xs text-ink-subtle">
-                {source.siteName} / {source.driveName} / {source.folderPath}
-              </p>
-              <p className="mt-1 text-xs text-ink-muted">
-                {source.includeSubfolders
-                  ? "Including subfolders"
-                  : "This folder only"}
-                {source.selectedBy ? ` · set by ${source.selectedBy}` : ""}
-                {` · ${formatDateTime(source.selectedAt)}`}
-              </p>
-            </div>
+      {/* Selected sources list */}
+      <div className="card p-4">
+        <div className="mb-3 flex items-center justify-between">
+          <div>
+            <h3 className="text-sm font-medium text-ink">Knowledge sources</h3>
+            <p className="text-xs text-ink-muted">
+              {sources.length === 0
+                ? "No folders selected yet."
+                : `${sources.length} SharePoint folder${sources.length === 1 ? "" : "s"} feeding the knowledge base.`}
+            </p>
+          </div>
+          {browseConfigured && !adding && (
             <button
-              onClick={() => setBrowsing(true)}
+              onClick={() => setAdding(true)}
               className="btn-secondary text-sm"
             >
-              Change folder
+              <Plus className="h-4 w-4" />
+              Add folder
             </button>
-          </div>
+          )}
         </div>
-      ) : (
+
+        {sources.length > 0 && (
+          <ul className="space-y-2">
+            {sources.map((s) => (
+              <SourceRow
+                key={s.id}
+                source={s}
+                onUpdated={updateSource}
+                onRemoved={removeSource}
+              />
+            ))}
+          </ul>
+        )}
+      </div>
+
+      {/* Add-folder picker */}
+      {adding && (
         <SharePointBrowser
           browseConfigured={browseConfigured}
-          onCancel={source ? () => setBrowsing(false) : undefined}
-          initialIncludeSubfolders={source?.includeSubfolders ?? true}
-          onSelected={(s) => {
-            setSource(s);
-            setBrowsing(false);
-          }}
+          existing={sources}
+          onCancel={sources.length > 0 ? () => setAdding(false) : undefined}
+          onSelected={addSource}
         />
       )}
     </div>
   );
 }
 
+/** A single selected-source row with an include-subfolders toggle and remove. */
+function SourceRow({
+  source,
+  onUpdated,
+  onRemoved,
+}: {
+  source: SelectedSource;
+  onUpdated: (s: SelectedSource) => void;
+  onRemoved: (id: string) => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [removing, setRemoving] = useState(false);
+
+  const toggleSubfolders = async (include: boolean) => {
+    setBusy(true);
+    try {
+      const res = await fetch(`/api/admin/kb/source/${source.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ includeSubfolders: include }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        onUpdated({
+          ...source,
+          includeSubfolders: data.source.includeSubfolders,
+        });
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const remove = async () => {
+    setRemoving(true);
+    try {
+      const res = await fetch(`/api/admin/kb/source/${source.id}`, {
+        method: "DELETE",
+      });
+      if (res.ok) onRemoved(source.id);
+      else setRemoving(false);
+    } catch {
+      setRemoving(false);
+    }
+  };
+
+  return (
+    <li className="rounded-lg bg-surface-inset p-3">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="flex items-center gap-1.5 text-sm text-ink">
+            <FolderOpen className="h-4 w-4 shrink-0 text-orange" />
+            <span className="truncate font-medium">{source.folderName}</span>
+          </p>
+          <p className="mt-0.5 truncate text-xs text-ink-subtle">
+            {source.siteName} / {source.driveName} / {source.folderPath}
+          </p>
+          <p className="mt-1 text-xs text-ink-muted">
+            {source.selectedBy ? `set by ${source.selectedBy}` : "added"}
+            {` · ${formatDateTime(source.selectedAt)}`}
+          </p>
+          <label className="mt-2 flex items-center gap-2 text-xs text-ink">
+            <input
+              type="checkbox"
+              checked={source.includeSubfolders}
+              disabled={busy}
+              onChange={(e) => toggleSubfolders(e.target.checked)}
+              className="h-4 w-4 rounded border-line text-orange focus:ring-orange"
+            />
+            Include subfolders
+            {busy && <Loader2 className="h-3 w-3 animate-spin text-ink-subtle" />}
+          </label>
+        </div>
+        <button
+          onClick={remove}
+          disabled={removing}
+          className="btn-ghost px-2 py-1 text-xs text-orange hover:bg-orange/10"
+        >
+          {removing ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <Trash2 className="h-4 w-4" />
+          )}
+          Remove
+        </button>
+      </div>
+    </li>
+  );
+}
+
 /**
  * Three-step SharePoint folder picker (sites -> libraries -> folders) using the
- * app's own service principal (app-only). On "Use this folder" it PUTs the source.
+ * app's own service principal (app-only). On "Use this folder" it POSTs the
+ * source, adding it to the knowledge base.
  */
 function SharePointBrowser({
   browseConfigured,
+  existing,
   onSelected,
   onCancel,
-  initialIncludeSubfolders,
 }: {
   browseConfigured: boolean;
+  existing: SelectedSource[];
   onSelected: (s: SelectedSource) => void;
   onCancel?: () => void;
-  initialIncludeSubfolders: boolean;
 }) {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -216,9 +333,7 @@ function SharePointBrowser({
   // Folder step
   const [crumbs, setCrumbs] = useState<Crumb[]>([]);
   const [folders, setFolders] = useState<FolderItem[]>([]);
-  const [includeSubfolders, setIncludeSubfolders] = useState(
-    initialIncludeSubfolders,
-  );
+  const [includeSubfolders, setIncludeSubfolders] = useState(true);
 
   const handleResult = useCallback(
     async (res: Response): Promise<Record<string, unknown> | null> => {
@@ -315,8 +430,19 @@ function SharePointBrowser({
   };
 
   const currentCrumb = crumbs[crumbs.length - 1] ?? null;
+  const alreadyAdded = Boolean(
+    site &&
+      drive &&
+      currentCrumb?.itemId &&
+      existing.some(
+        (e) =>
+          e.siteId === site.id &&
+          e.driveId === drive.id &&
+          e.folderItemId === currentCrumb.itemId,
+      ),
+  );
   const canUseFolder = Boolean(
-    site && drive && currentCrumb && currentCrumb.itemId,
+    site && drive && currentCrumb && currentCrumb.itemId && !alreadyAdded,
   );
 
   const useThisFolder = async () => {
@@ -329,7 +455,7 @@ function SharePointBrowser({
     setError(null);
     try {
       const res = await fetch("/api/admin/kb/source", {
-        method: "PUT",
+        method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           siteId: site.id,
@@ -343,14 +469,18 @@ function SharePointBrowser({
         }),
       });
       if (!res.ok) {
-        setError("Could not save the selected folder. Please try again.");
+        setError("Could not add the selected folder. Please try again.");
         return;
       }
       const data = await res.json();
       const s = data.source;
       onSelected({
+        id: s.id,
+        siteId: s.siteId,
         siteName: s.siteName,
+        driveId: s.driveId,
         driveName: s.driveName,
+        folderItemId: s.folderItemId,
         folderPath: s.folderPath,
         folderName: s.folderName,
         includeSubfolders: s.includeSubfolders,
@@ -365,7 +495,7 @@ function SharePointBrowser({
   if (!browseConfigured) {
     return (
       <div className="card p-4">
-        <h3 className="text-sm font-medium text-ink">Knowledge source</h3>
+        <h3 className="text-sm font-medium text-ink">Add a folder</h3>
         <p className="mt-1 text-xs text-ink-muted">
           SharePoint browsing is not configured. Set SHAREPOINT_TENANT_ID,
           SHAREPOINT_CLIENT_ID, and SHAREPOINT_CLIENT_SECRET to let admins pick a
@@ -379,7 +509,7 @@ function SharePointBrowser({
     <div className="card p-4">
       <div className="mb-3 flex items-center justify-between">
         <h3 className="text-sm font-medium text-ink">
-          Choose a SharePoint folder
+          Add a SharePoint folder
         </h3>
         {onCancel && (
           <button onClick={onCancel} className="btn-ghost px-2 py-1 text-xs">
@@ -571,11 +701,17 @@ function SharePointBrowser({
               )}
               Use this folder
             </button>
-            {!canUseFolder && (
+            {alreadyAdded ? (
               <span className="text-xs text-ink-subtle">
-                Drill into a folder to select it (the library root cannot be the
-                source).
+                This folder is already a knowledge source.
               </span>
+            ) : (
+              !canUseFolder && (
+                <span className="text-xs text-ink-subtle">
+                  Drill into a folder to select it (the library root cannot be
+                  the source).
+                </span>
+              )
             )}
           </div>
         </div>

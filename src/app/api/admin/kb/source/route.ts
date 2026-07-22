@@ -6,19 +6,17 @@ import { recordAudit } from "@/lib/audit";
 
 export const dynamic = "force-dynamic";
 
-/** The single selected SharePoint source (one folder at a time). */
-async function currentSource() {
-  return prisma.kbSource.findFirst({ orderBy: { selectedAt: "desc" } });
-}
-
-/** GET — the currently selected SharePoint source, or null. */
+/** GET — all selected SharePoint sources, newest first. */
 export async function GET() {
   try {
     await requireAdmin();
   } catch {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
-  return NextResponse.json({ source: await currentSource() });
+  const sources = await prisma.kbSource.findMany({
+    orderBy: { selectedAt: "desc" },
+  });
+  return NextResponse.json({ sources });
 }
 
 const SourceSchema = z.object({
@@ -33,10 +31,11 @@ const SourceSchema = z.object({
 });
 
 /**
- * PUT — set (replace) the selected SharePoint source. Only one source exists at
- * a time, so any previous selection is cleared and a fresh row written.
+ * POST — add a SharePoint folder to the knowledge base. Multiple folders can be
+ * selected; each is synced independently. Adding the same folder twice is a
+ * no-op that returns the existing row (409-free, idempotent).
  */
-export async function PUT(req: NextRequest) {
+export async function POST(req: NextRequest) {
   let actor;
   try {
     actor = await requireAdmin();
@@ -49,16 +48,26 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: "Bad request" }, { status: 400 });
   }
 
-  const [, source] = await prisma.$transaction([
-    prisma.kbSource.deleteMany({}),
-    prisma.kbSource.create({
-      data: { ...parsed.data, selectedBy: actor.email },
-    }),
-  ]);
+  // Guard against duplicates: the same folder (site + drive + item) may only be
+  // added once. Return the existing row rather than creating a second one.
+  const existing = await prisma.kbSource.findFirst({
+    where: {
+      siteId: parsed.data.siteId,
+      driveId: parsed.data.driveId,
+      folderItemId: parsed.data.folderItemId,
+    },
+  });
+  if (existing) {
+    return NextResponse.json({ source: existing, duplicate: true });
+  }
+
+  const source = await prisma.kbSource.create({
+    data: { ...parsed.data, selectedBy: actor.email },
+  });
 
   await recordAudit({
     actorUserId: actor.id,
-    action: "admin.kb.source.set",
+    action: "admin.kb.source.add",
     target: source.folderPath,
     metadata: {
       siteName: source.siteName,
@@ -68,20 +77,4 @@ export async function PUT(req: NextRequest) {
   });
 
   return NextResponse.json({ source });
-}
-
-/** DELETE — clear the selected source. */
-export async function DELETE() {
-  let actor;
-  try {
-    actor = await requireAdmin();
-  } catch {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-  await prisma.kbSource.deleteMany({});
-  await recordAudit({
-    actorUserId: actor.id,
-    action: "admin.kb.source.clear",
-  });
-  return NextResponse.json({ ok: true });
 }
