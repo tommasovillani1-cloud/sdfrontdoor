@@ -78,6 +78,52 @@ export async function triggerSharePointSyncJob(source: {
 }
 
 /**
+ * Poll the state of a Job run. Returns a normalised status so the UI can show a
+ * live "syncing / succeeded / failed" outcome. Databricks distinguishes a run's
+ * lifecycle (PENDING/RUNNING/TERMINATED/…) from its result (SUCCESS/FAILED/…);
+ * we collapse them to one of: "running" | "success" | "failed".
+ */
+export async function getRunState(runId: number): Promise<{
+  ok: boolean;
+  status: "running" | "success" | "failed";
+  lifeCycleState?: string;
+  resultState?: string;
+  error?: string;
+}> {
+  if (!isProcessingJobConfigured()) {
+    return { ok: false, status: "failed", error: "not_configured" };
+  }
+  try {
+    const url = `${host()}/api/2.1/jobs/runs/get?run_id=${runId}`;
+    const res = await fetch(url, { headers: authHeaders() });
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      return {
+        ok: false,
+        status: "failed",
+        error: `${res.status}: ${text.slice(0, 200)}`,
+      };
+    }
+    const data = (await res.json()) as {
+      state?: { life_cycle_state?: string; result_state?: string };
+    };
+    const life = data.state?.life_cycle_state ?? "";
+    const result = data.state?.result_state ?? "";
+
+    // Terminal lifecycle states carry a result_state; everything else is still
+    // in flight. INTERNAL_ERROR / SKIPPED without SUCCESS count as failed.
+    const terminal = ["TERMINATED", "SKIPPED", "INTERNAL_ERROR"].includes(life);
+    if (!terminal) {
+      return { ok: true, status: "running", lifeCycleState: life };
+    }
+    const status = result === "SUCCESS" ? "success" : "failed";
+    return { ok: true, status, lifeCycleState: life, resultState: result };
+  } catch (err) {
+    return { ok: false, status: "failed", error: (err as Error).message };
+  }
+}
+
+/**
  * Trigger the AI Search Delta Sync Index sync (Triggered mode). No-op when
  * the index is not provisioned.
  */

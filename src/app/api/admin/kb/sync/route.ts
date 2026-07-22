@@ -92,6 +92,10 @@ export async function POST(_req: NextRequest) {
     ),
   );
   const jobsTriggered = jobs.filter((j) => j.triggered).length;
+  // Run ids the client polls to report a real succeeded/failed outcome.
+  const runIds = jobs
+    .map((j) => j.runId)
+    .filter((id): id is number => typeof id === "number");
 
   // Only sync the index once, after the per-folder jobs have been kicked off.
   const index = jobsTriggered > 0 ? await triggerIndexSync() : { triggered: false };
@@ -115,6 +119,7 @@ export async function POST(_req: NextRequest) {
   return NextResponse.json({
     ok: true,
     jobsTriggered,
+    runIds,
     indexTriggered: index.triggered,
     lastSyncAt: jobsTriggered > 0 ? now : null,
     note:

@@ -10,6 +10,8 @@ import {
   Check,
   Plus,
   Trash2,
+  CheckCircle2,
+  XCircle,
 } from "lucide-react";
 import { cn, formatDateTime } from "@/lib/utils";
 import {
@@ -74,7 +76,10 @@ export function KnowledgeBaseManager({
 
   const [currentCadence, setCurrentCadence] = useState(cadence);
   const [lastSync, setLastSync] = useState(lastSyncAt);
-  const [syncing, setSyncing] = useState(false);
+  // Sync lifecycle: idle -> syncing (triggering + polling runs) -> success|failed.
+  const [syncState, setSyncState] = useState<
+    "idle" | "syncing" | "success" | "failed"
+  >("idle");
   const [notice, setNotice] = useState<string | null>(null);
 
   const changeCadence = async (c: SyncCadence) => {
@@ -86,18 +91,59 @@ export function KnowledgeBaseManager({
     });
   };
 
+  // Poll the run-status endpoint until every triggered run reaches a terminal
+  // state, then resolve to the aggregate outcome. Caps at ~5 minutes.
+  const pollUntilDone = useCallback(
+    async (runIds: number[]): Promise<"success" | "failed"> => {
+      const deadline = Date.now() + 5 * 60_000;
+      const qs = runIds.join(",");
+      // small delay helper without a busy loop
+      const wait = (ms: number) =>
+        new Promise((resolve) => setTimeout(resolve, ms));
+      while (Date.now() < deadline) {
+        await wait(3000);
+        try {
+          const res = await fetch(
+            `/api/admin/kb/sync/status?runIds=${encodeURIComponent(qs)}`,
+          );
+          if (!res.ok) continue;
+          const data = await res.json();
+          if (data.status === "success") return "success";
+          if (data.status === "failed") return "failed";
+          // else "running" -> keep polling
+        } catch {
+          // transient; keep polling
+        }
+      }
+      // Timed out waiting; treat as failed so the admin knows to check.
+      return "failed";
+    },
+    [],
+  );
+
   const syncNow = async () => {
-    setSyncing(true);
+    setSyncState("syncing");
     setNotice(null);
     try {
       const res = await fetch("/api/admin/kb/sync", { method: "POST" });
       const data = await res.json();
       if (data.lastSyncAt) setLastSync(data.lastSyncAt);
-      if (data.note) setNotice(data.note);
-    } finally {
-      setSyncing(false);
+
+      // Nothing was triggered (no folders, or Databricks not configured).
+      if (!data.runIds || data.runIds.length === 0) {
+        setNotice(data.note ?? "There was nothing to sync.");
+        setSyncState("idle");
+        return;
+      }
+
+      const outcome = await pollUntilDone(data.runIds as number[]);
+      setSyncState(outcome);
+    } catch {
+      setSyncState("failed");
     }
   };
+
+  const syncing = syncState === "syncing";
 
   const addSource = (s: SelectedSource) => {
     setSources((prev) =>
@@ -146,15 +192,41 @@ export function KnowledgeBaseManager({
               className="btn-secondary text-sm"
             >
               {syncing ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Syncing…
+                </>
               ) : (
-                <RefreshCw className="h-4 w-4" />
+                <>
+                  <RefreshCw className="h-4 w-4" />
+                  Sync now
+                </>
               )}
-              Sync now
             </button>
           </div>
         </div>
       </div>
+
+      {syncState === "syncing" && (
+        <div className="flex items-center gap-2 rounded-card border border-vivid/40 bg-vivid/10 px-4 py-2 text-xs text-ink">
+          <Loader2 className="h-4 w-4 animate-spin text-vivid" />
+          Syncing… this can take a minute while the knowledge base updates.
+        </div>
+      )}
+
+      {syncState === "success" && (
+        <div className="flex items-center gap-2 rounded-card border border-success/40 bg-success/10 px-4 py-2 text-xs text-ink">
+          <CheckCircle2 className="h-4 w-4 text-success" />
+          Sync succeeded.
+        </div>
+      )}
+
+      {syncState === "failed" && (
+        <div className="flex items-center gap-2 rounded-card border border-orange/40 bg-orange/10 px-4 py-2 text-xs text-ink">
+          <XCircle className="h-4 w-4 text-orange" />
+          Sync failed. Please try again or check the sync job in Databricks.
+        </div>
+      )}
 
       {notice && (
         <div className="rounded-card border border-vivid/40 bg-vivid/10 px-4 py-2 text-xs text-ink-muted">
