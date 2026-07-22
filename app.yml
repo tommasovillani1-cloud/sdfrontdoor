@@ -55,3 +55,7 @@ env:
     valueFrom: SHAREPOINT_CLIENT_ID
   - name: SHAREPOINT_CLIENT_SECRET
     valueFrom: SHAREPOINT_CLIENT_SECRET
+  # Pin the OAuth redirect base so the SharePoint sign-in sends a redirect_uri
+  # that exactly matches the reply URL registered on the Entra app. Not a secret.
+  - name: APP_BASE_URL
+    value: https://servicedeskfrontdoor-dev-331084458297511.11.azure.databricksapps.com
