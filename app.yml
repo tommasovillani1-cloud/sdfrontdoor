@@ -7,7 +7,7 @@ env:
   # (e.g. "Can't resolve '@/lib/db'"). Databricks sets NODE_ENV=production in the
   # runtime environment by default, so the app still runs in production mode.
 
-  # The 23 secrets below are injected from app resources configured in the
+  # The 20 secrets below are injected from app resources configured in the
   # Databricks UI (scope e6-sdfrontdoor-dev). Each valueFrom references the
   # resource *name*, which matches the secret key one-to-one.
   - name: DATABASE_URL
@@ -32,14 +32,13 @@ env:
     valueFrom: DATABRICKS_HOST
   - name: DATABRICKS_TOKEN
     valueFrom: DATABRICKS_TOKEN
-  - name: KB_VOLUME_PATH
-    valueFrom: KB_VOLUME_PATH
   - name: KB_DELTA_TABLE
     valueFrom: KB_DELTA_TABLE
+  # Inlined (not secrets) to stay under the 20 app-resource limit.
   - name: KB_VECTOR_ENDPOINT
-    valueFrom: KB_VECTOR_ENDPOINT
+    value: e6_knowledgebase_vector
   - name: KB_VECTOR_INDEX
-    valueFrom: KB_VECTOR_INDEX
+    value: e6_knowledgebase_dev.default.kb_chunks_index
   - name: KB_PROCESSING_JOB_ID
     valueFrom: KB_PROCESSING_JOB_ID
   - name: SERVICENOW_ENABLED
