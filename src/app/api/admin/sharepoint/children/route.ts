@@ -9,9 +9,8 @@ export const dynamic = "force-dynamic";
  * Sub-folders of a drive folder (root when itemId omitted). Folders only.
  */
 export async function GET(req: NextRequest) {
-  let actor;
   try {
-    actor = await requireAdmin();
+    await requireAdmin();
   } catch {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
@@ -22,7 +21,12 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "driveId is required" }, { status: 400 });
   }
 
-  const result = await listFolderChildren(actor.id, driveId, itemId);
-  if (!result.ok) return NextResponse.json({ needsAuth: true });
+  const result = await listFolderChildren(driveId, itemId);
+  if (!result.ok) {
+    return NextResponse.json(
+      { error: "Could not list folders." },
+      { status: 502 },
+    );
+  }
   return NextResponse.json({ items: result.items });
 }

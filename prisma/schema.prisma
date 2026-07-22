@@ -220,21 +220,3 @@ model KbSource {
 
   @@map("kb_source")
 }
-
-// --------------------------------------------------------------------------
-// Delegated SharePoint browse tokens (per admin). Populated by the interactive
-// OAuth auth-code flow so an admin can browse SharePoint as themselves. Access
-// and refresh tokens are encrypted at rest with APP_ENCRYPTION_KEY (crypto.ts).
-// Distinct from the app-only Graph/sync identities.
-// --------------------------------------------------------------------------
-
-model SharePointBrowseToken {
-  userId       String   @id @map("user_id")
-  accessToken  String   @map("access_token") // encrypted
-  refreshToken String   @map("refresh_token") // encrypted
-  expiresAt    DateTime @map("expires_at")
-  scope        String?
-  updatedAt    DateTime @default(now()) @updatedAt @map("updated_at")
-
-  @@map("sharepoint_browse_tokens")
-}

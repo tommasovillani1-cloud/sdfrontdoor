@@ -4,17 +4,21 @@ import { listSites } from "@/lib/sharepoint";
 
 export const dynamic = "force-dynamic";
 
-/** GET /api/admin/sharepoint/sites?q= — sites the signed-in admin can access. */
+/** GET /api/admin/sharepoint/sites?q= — SharePoint sites (app-only). */
 export async function GET(req: NextRequest) {
-  let actor;
   try {
-    actor = await requireAdmin();
+    await requireAdmin();
   } catch {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   const q = req.nextUrl.searchParams.get("q") ?? undefined;
-  const result = await listSites(actor.id, q);
-  if (!result.ok) return NextResponse.json({ needsAuth: true });
+  const result = await listSites(q);
+  if (!result.ok) {
+    return NextResponse.json(
+      { error: "Could not list SharePoint sites." },
+      { status: 502 },
+    );
+  }
   return NextResponse.json({ items: result.items });
 }

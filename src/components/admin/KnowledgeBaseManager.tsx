@@ -8,7 +8,6 @@ import {
   Loader2,
   ChevronRight,
   Check,
-  Link2,
 } from "lucide-react";
 import { cn, formatDateTime } from "@/lib/utils";
 import {
@@ -188,8 +187,7 @@ export function KnowledgeBaseManager({
 
 /**
  * Three-step SharePoint folder picker (sites -> libraries -> folders) using the
- * admin's own delegated identity. Any browse call returning needsAuth flips to a
- * "Connect SharePoint" prompt. On "Use this folder" it PUTs the source.
+ * app's own service principal (app-only). On "Use this folder" it PUTs the source.
  */
 function SharePointBrowser({
   browseConfigured,
@@ -202,7 +200,6 @@ function SharePointBrowser({
   onCancel?: () => void;
   initialIncludeSubfolders: boolean;
 }) {
-  const [needsAuth, setNeedsAuth] = useState(false);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -226,11 +223,13 @@ function SharePointBrowser({
   const handleResult = useCallback(
     async (res: Response): Promise<Record<string, unknown> | null> => {
       const data = await res.json().catch(() => ({}));
-      if (data?.needsAuth) {
-        setNeedsAuth(true);
+      if (!res.ok) {
+        setError(
+          (data?.error as string) ||
+            "SharePoint request failed. Please try again.",
+        );
         return null;
       }
-      setNeedsAuth(false);
       return data;
     },
     [],
@@ -372,25 +371,6 @@ function SharePointBrowser({
           SHAREPOINT_CLIENT_ID, and SHAREPOINT_CLIENT_SECRET to let admins pick a
           folder.
         </p>
-      </div>
-    );
-  }
-
-  if (needsAuth) {
-    return (
-      <div className="card p-4">
-        <h3 className="text-sm font-medium text-ink">Connect SharePoint</h3>
-        <p className="mt-1 text-xs text-ink-muted">
-          Sign in with your own account to browse the sites and folders you can
-          access. You will be returned here to pick a folder.
-        </p>
-        <a
-          href="/api/admin/sharepoint/auth/login"
-          className="btn-primary mt-3 inline-flex text-sm"
-        >
-          <Link2 className="h-4 w-4" />
-          Connect SharePoint
-        </a>
       </div>
     );
   }
