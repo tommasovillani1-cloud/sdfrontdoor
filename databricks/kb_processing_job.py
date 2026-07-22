@@ -77,11 +77,11 @@ print(
 # uses for delegated browse; here we use its APPLICATION Sites.Read.All via client
 # credentials). Credentials come from the job's Databricks secret scope, NEVER from
 # job parameters (which persist in run history). Distinct from the enrichment app.
-SYNC_SCOPE = "e6_kb"
+SYNC_SCOPE = "e6-sdfrontdoor-dev"
 
-SYNC_TENANT_ID = dbutils.secrets.get(scope=SYNC_SCOPE, key="sharepoint_tenant_id")
-SYNC_CLIENT_ID = dbutils.secrets.get(scope=SYNC_SCOPE, key="sharepoint_client_id")
-SYNC_CLIENT_SECRET = dbutils.secrets.get(scope=SYNC_SCOPE, key="sharepoint_client_secret")
+SYNC_TENANT_ID = dbutils.secrets.get(scope=SYNC_SCOPE, key="SHAREPOINT_TENANT_ID")
+SYNC_CLIENT_ID = dbutils.secrets.get(scope=SYNC_SCOPE, key="SHAREPOINT_CLIENT_ID")
+SYNC_CLIENT_SECRET = dbutils.secrets.get(scope=SYNC_SCOPE, key="SHAREPOINT_CLIENT_SECRET")
 
 GRAPH_BASE = "https://graph.microsoft.com/v1.0"
 
