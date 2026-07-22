@@ -368,9 +368,9 @@ function SharePointBrowser({
       <div className="card p-4">
         <h3 className="text-sm font-medium text-ink">Knowledge source</h3>
         <p className="mt-1 text-xs text-ink-muted">
-          SharePoint browsing is not configured. Set SHAREPOINT_BROWSE_TENANT_ID,
-          SHAREPOINT_BROWSE_CLIENT_ID, and SHAREPOINT_BROWSE_CLIENT_SECRET to let
-          admins pick a folder.
+          SharePoint browsing is not configured. Set SHAREPOINT_TENANT_ID,
+          SHAREPOINT_CLIENT_ID, and SHAREPOINT_CLIENT_SECRET to let admins pick a
+          folder.
         </p>
       </div>
     );

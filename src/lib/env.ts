@@ -44,29 +44,21 @@ export const env = {
   },
 
   /**
-   * Dedicated Entra app for the admin's DELEGATED SharePoint browse (interactive
-   * auth-code flow). Distinct from the app-only GRAPH_* enrichment app: this one
-   * signs the admin in so they only see SharePoint they can access.
+   * Single Entra app registration for SharePoint, used in two ways:
+   *  - DELEGATED (browse): the admin signs in via the interactive auth-code flow,
+   *    so the folder picker only ever shows SharePoint they can access. Needs the
+   *    delegated Sites.Read.All + offline_access + User.Read permissions.
+   *  - APP-ONLY (sync): the Databricks job enumerates the selected folder as the
+   *    application. Needs the application Sites.Read.All permission.
+   * Both permission types live on this one registration, so one Client ID serves
+   * both roles. The Databricks job reads these from its own secret scope; they
+   * are declared here so the Node runtime can drive the browse flow. Distinct
+   * from the GRAPH_* profile-enrichment app.
    */
-  sharepointBrowse: {
-    tenantId: str("SHAREPOINT_BROWSE_TENANT_ID"),
-    clientId: str("SHAREPOINT_BROWSE_CLIENT_ID"),
-    clientSecret: str("SHAREPOINT_BROWSE_CLIENT_SECRET"),
-    get configured() {
-      return Boolean(this.tenantId && this.clientId && this.clientSecret);
-    },
-  },
-
-  /**
-   * Dedicated Entra app for the BACKEND SYNC (app-only client credentials). Used
-   * by the Databricks job to enumerate the selected SharePoint folder. Distinct
-   * from both GRAPH_* and the browse app. The sync itself runs in Databricks and
-   * reads these from its own secret scope; they are declared here for parity.
-   */
-  sharepointSync: {
-    tenantId: str("SHAREPOINT_SYNC_TENANT_ID"),
-    clientId: str("SHAREPOINT_SYNC_CLIENT_ID"),
-    clientSecret: str("SHAREPOINT_SYNC_CLIENT_SECRET"),
+  sharepoint: {
+    tenantId: str("SHAREPOINT_TENANT_ID"),
+    clientId: str("SHAREPOINT_CLIENT_ID"),
+    clientSecret: str("SHAREPOINT_CLIENT_SECRET"),
     get configured() {
       return Boolean(this.tenantId && this.clientId && this.clientSecret);
     },

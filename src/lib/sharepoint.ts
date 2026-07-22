@@ -6,7 +6,7 @@ import { encryptSecret, decryptSecret } from "./crypto";
 /**
  * SharePoint browse layer (DELEGATED identity).
  *
- * The admin signs in through a dedicated Entra app (SHAREPOINT_BROWSE_*) via an
+ * The admin signs in through the SharePoint Entra app (SHAREPOINT_*) via an
  * OAuth auth-code + PKCE flow, so they browse SharePoint as themselves and only
  * see what they can access. Tokens are stored per user, encrypted at rest with
  * APP_ENCRYPTION_KEY. This is entirely separate from the app-only Graph
@@ -36,11 +36,11 @@ const AUTH_CALLBACK_PATH = "/api/admin/sharepoint/auth/callback";
 // --------------------------------------------------------------------------
 
 function authorizeEndpoint(): string {
-  return `https://login.microsoftonline.com/${env.sharepointBrowse.tenantId}/oauth2/v2.0/authorize`;
+  return `https://login.microsoftonline.com/${env.sharepoint.tenantId}/oauth2/v2.0/authorize`;
 }
 
 function tokenEndpoint(): string {
-  return `https://login.microsoftonline.com/${env.sharepointBrowse.tenantId}/oauth2/v2.0/token`;
+  return `https://login.microsoftonline.com/${env.sharepoint.tenantId}/oauth2/v2.0/token`;
 }
 
 /**
@@ -80,7 +80,7 @@ export function createPkce(): { pkce: PkceState; challenge: string } {
 /** Build the Microsoft authorize URL for the interactive sign-in redirect. */
 export function buildAuthorizeUrl(redirectUri: string, challenge: string, state: string): string {
   const params = new URLSearchParams({
-    client_id: env.sharepointBrowse.clientId,
+    client_id: env.sharepoint.clientId,
     response_type: "code",
     redirect_uri: redirectUri,
     response_mode: "query",
@@ -155,10 +155,10 @@ export async function exchangeCodeForTokens(
   redirectUri: string,
   verifier: string,
 ): Promise<boolean> {
-  if (!env.sharepointBrowse.configured) return false;
+  if (!env.sharepoint.configured) return false;
   const body = new URLSearchParams({
-    client_id: env.sharepointBrowse.clientId,
-    client_secret: env.sharepointBrowse.clientSecret,
+    client_id: env.sharepoint.clientId,
+    client_secret: env.sharepoint.clientSecret,
     grant_type: "authorization_code",
     code,
     redirect_uri: redirectUri,
@@ -177,7 +177,7 @@ export async function exchangeCodeForTokens(
  * or a refresh fails (the caller then treats it as "needs sign-in").
  */
 export async function getDelegatedToken(userId: string): Promise<string | null> {
-  if (!env.sharepointBrowse.configured) return null;
+  if (!env.sharepoint.configured) return null;
 
   const row = await prisma.sharePointBrowseToken.findUnique({ where: { userId } });
   if (!row) return null;
@@ -199,8 +199,8 @@ export async function getDelegatedToken(userId: string): Promise<string | null> 
   }
 
   const body = new URLSearchParams({
-    client_id: env.sharepointBrowse.clientId,
-    client_secret: env.sharepointBrowse.clientSecret,
+    client_id: env.sharepoint.clientId,
+    client_secret: env.sharepoint.clientSecret,
     grant_type: "refresh_token",
     refresh_token: refreshToken,
     scope: BROWSE_SCOPES,

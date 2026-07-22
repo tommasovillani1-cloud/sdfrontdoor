@@ -7,7 +7,7 @@ env:
   # (e.g. "Can't resolve '@/lib/db'"). Databricks sets NODE_ENV=production in the
   # runtime environment by default, so the app still runs in production mode.
 
-  # The 26 secrets below are injected from app resources configured in the
+  # The 23 secrets below are injected from app resources configured in the
   # Databricks UI (scope e6-sdfrontdoor-dev). Each valueFrom references the
   # resource *name*, which matches the secret key one-to-one.
   - name: DATABASE_URL
@@ -50,15 +50,9 @@ env:
     valueFrom: GRAPH_CLIENT_SECRET
   - name: GRAPH_TENANT_ID
     valueFrom: GRAPH_TENANT_ID
-  - name: SHAREPOINT_BROWSE_TENANT_ID
-    valueFrom: SHAREPOINT_BROWSE_TENANT_ID
-  - name: SHAREPOINT_BROWSE_CLIENT_ID
-    valueFrom: SHAREPOINT_BROWSE_CLIENT_ID
-  - name: SHAREPOINT_BROWSE_CLIENT_SECRET
-    valueFrom: SHAREPOINT_BROWSE_CLIENT_SECRET
-  - name: SHAREPOINT_SYNC_TENANT_ID
-    valueFrom: SHAREPOINT_SYNC_TENANT_ID
-  - name: SHAREPOINT_SYNC_CLIENT_ID
-    valueFrom: SHAREPOINT_SYNC_CLIENT_ID
-  - name: SHAREPOINT_SYNC_CLIENT_SECRET
-    valueFrom: SHAREPOINT_SYNC_CLIENT_SECRET
+  - name: SHAREPOINT_TENANT_ID
+    valueFrom: SHAREPOINT_TENANT_ID
+  - name: SHAREPOINT_CLIENT_ID
+    valueFrom: SHAREPOINT_CLIENT_ID
+  - name: SHAREPOINT_CLIENT_SECRET
+    valueFrom: SHAREPOINT_CLIENT_SECRET

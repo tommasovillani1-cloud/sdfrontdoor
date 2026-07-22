@@ -18,7 +18,7 @@ export async function GET() {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
   return NextResponse.json({
-    configured: env.sharepointBrowse.configured,
+    configured: env.sharepoint.configured,
     connected: await hasBrowseGrant(actor.id),
   });
 }

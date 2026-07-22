@@ -42,7 +42,7 @@ export default async function KnowledgeBasePage() {
         cadence={cadence}
         lastSyncAt={lastSyncAt}
         indexConfigured={isIndexConfigured()}
-        browseConfigured={env.sharepointBrowse.configured}
+        browseConfigured={env.sharepoint.configured}
       />
     </div>
   );

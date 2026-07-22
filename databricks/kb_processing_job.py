@@ -6,9 +6,10 @@
 # MAGIC `kb_chunks` Delta table. The knowledge source is a single SharePoint folder
 # MAGIC selected by an admin in the app; this job owns ALL of the incremental logic:
 # MAGIC
-# MAGIC 1. Authenticates app-only as the dedicated **sync** Entra app (client
-# MAGIC    credentials), reading `SHAREPOINT_SYNC_*` from this job's Databricks secret
-# MAGIC    scope. The app never sends any secret in job parameters.
+# MAGIC 1. Authenticates app-only as the SharePoint Entra app (client credentials;
+# MAGIC    the same registration the app uses for delegated browse, via its
+# MAGIC    application Sites.Read.All), reading `SHAREPOINT_*` from this job's
+# MAGIC    Databricks secret scope. The app never sends any secret in job parameters.
 # MAGIC 2. Enumerates the folder via a Microsoft Graph **delta** query, persisting the
 # MAGIC    returned `@odata.deltaLink` as a cursor in a Databricks Delta state table.
 # MAGIC    Subsequent runs call the saved deltaLink and receive only changes
@@ -72,14 +73,15 @@ print(
 
 # COMMAND ----------
 
-# App-only Graph auth as the dedicated SYNC Entra app. Credentials come from the
-# job's Databricks secret scope, NEVER from job parameters (which persist in run
-# history). This app is distinct from the browse app and the enrichment app.
+# App-only Graph auth as the SharePoint Entra app (the same registration the app
+# uses for delegated browse; here we use its APPLICATION Sites.Read.All via client
+# credentials). Credentials come from the job's Databricks secret scope, NEVER from
+# job parameters (which persist in run history). Distinct from the enrichment app.
 SYNC_SCOPE = "e6_kb"
 
-SYNC_TENANT_ID = dbutils.secrets.get(scope=SYNC_SCOPE, key="sharepoint_sync_tenant_id")
-SYNC_CLIENT_ID = dbutils.secrets.get(scope=SYNC_SCOPE, key="sharepoint_sync_client_id")
-SYNC_CLIENT_SECRET = dbutils.secrets.get(scope=SYNC_SCOPE, key="sharepoint_sync_client_secret")
+SYNC_TENANT_ID = dbutils.secrets.get(scope=SYNC_SCOPE, key="sharepoint_tenant_id")
+SYNC_CLIENT_ID = dbutils.secrets.get(scope=SYNC_SCOPE, key="sharepoint_client_id")
+SYNC_CLIENT_SECRET = dbutils.secrets.get(scope=SYNC_SCOPE, key="sharepoint_client_secret")
 
 GRAPH_BASE = "https://graph.microsoft.com/v1.0"
 
