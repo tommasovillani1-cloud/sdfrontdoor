@@ -1,5 +1,5 @@
 import { headers } from "next/headers";
-import type { User } from "@prisma/client";
+import { Prisma, type User } from "@prisma/client";
 import { prisma } from "./db";
 import { env } from "./env";
 import { getGraphProfile } from "./graph";
@@ -81,15 +81,30 @@ export async function resolveCurrentUser(): Promise<User | null> {
   const displayName = profile?.displayName || identity.nameHint || null;
   const site = profile?.country?.trim() ? profile.country.trim() : "Unknown";
 
-  return prisma.user.create({
-    data: {
-      email,
-      displayName,
-      site,
-      preferredLanguage: profile?.preferredLanguage ?? null,
-      isAdmin: isDefaultAdmin,
-    },
-  });
+  try {
+    return await prisma.user.create({
+      data: {
+        email,
+        displayName,
+        site,
+        preferredLanguage: profile?.preferredLanguage ?? null,
+        isAdmin: isDefaultAdmin,
+      },
+    });
+  } catch (err) {
+    // On first login several server components resolve identity in parallel,
+    // all miss the findUnique above, and race to create. One wins; the rest
+    // hit a unique-constraint violation on email. Treat that as "already
+    // created by a sibling request" and return the now-existing row.
+    if (
+      err instanceof Prisma.PrismaClientKnownRequestError &&
+      err.code === "P2002"
+    ) {
+      const raced = await prisma.user.findUnique({ where: { email } });
+      if (raced) return raced;
+    }
+    throw err;
+  }
 }
 
 /** Convenience: resolve user or throw (for routes that require identity). */
